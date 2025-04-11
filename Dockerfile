@@ -2,8 +2,14 @@ FROM golang:1-alpine3.21 AS builder
 
 RUN apk add --no-cache git ca-certificates build-base su-exec olm-dev
 
-COPY . /build
 WORKDIR /build
+
+# Copy and download dependency using go mod
+COPY go.mod .
+COPY go.sum .
+RUN go mod download
+
+COPY . .
 RUN ./build.sh
 
 FROM alpine:3.21
