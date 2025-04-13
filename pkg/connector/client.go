@@ -2,7 +2,6 @@ package connector
 
 import (
 	"context"
-	"strings"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
@@ -150,13 +149,10 @@ func (c *MeshtasticClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghos
 
 func (c *MeshtasticClient) TryJoinChannels(ctx context.Context) {
 	portals, _ := c.bridge.GetAllPortalsWithMXID(ctx)
+
 	for _, p := range portals {
-		parts := strings.Split(string(p.ID), "|||")
-		c.MeshClient.AddChannel(parts[0], parts[1])
-	}
-	// The primary channel is required to receive most mesh events
-	if len(portals) == 0 {
-		pc := c.main.Config.PrimaryChannel
-		c.MeshClient.AddChannel(pc.Name, pc.Key)
+		if channelID, channelKey, err := meshid.ParsePortalID(p.ID); err != nil {
+			c.MeshClient.AddChannel(channelID, channelKey)
+		}
 	}
 }

@@ -205,6 +205,7 @@ func (c *MeshtasticConnector) LoadUserLogin(ctx context.Context, login *bridgev2
 
 	meshClient := mesh.NewMeshtasticClient(c.GetBaseNodeID(), mqttClient, c.log.With().Str("topic", meta.RootTopic).Logger())
 	meshClient.SetIsManagedNodeHandler(c.IsManagedNode)
+	meshClient.SetOnConnectHandler(c.onMqttConnected)
 
 	login.Client = &MeshtasticClient{
 		UserLogin:  login,
@@ -218,4 +219,19 @@ func (c *MeshtasticConnector) LoadUserLogin(ctx context.Context, login *bridgev2
 
 func (c *MeshtasticConnector) TryJoinChannels(ctx context.Context, login *bridgev2.UserLogin) {
 	login.Client.(*MeshtasticClient).TryJoinChannels(ctx)
+}
+
+func (c *MeshtasticConnector) onMqttConnected(client *mesh.MeshtasticClient) {
+	client.AddChannel(c.Config.PrimaryChannel.Name, c.Config.PrimaryChannel.Key)
+	client.SendNodeInfo(c.GetBaseNodeID(), mesh.BROADCAST_ID, c.Config.LongName, c.Config.ShortName, false)
+	client.SendTelemetry(c.GetBaseNodeID(), mesh.BROADCAST_ID)
+
+	ctx := context.Background()
+
+	portals, _ := c.bridge.GetAllPortalsWithMXID(ctx)
+	for _, p := range portals {
+		if channelID, channelKey, err := meshid.ParsePortalID(p.ID); err != nil {
+			client.AddChannel(channelID, channelKey)
+		}
+	}
 }

@@ -31,6 +31,7 @@ const (
 
 type MeshEventFunc func(event any)
 type IsManagedFunc func(nodeID meshid.NodeID) bool
+type MeshConnectedFunc func(client *MeshtasticClient)
 
 type MeshtasticClient struct {
 	startTime         *time.Time
@@ -43,6 +44,7 @@ type MeshtasticClient struct {
 	eventHandlers     []MeshEventFunc
 	log               zerolog.Logger
 	managedNodeFunc   IsManagedFunc
+	onConnectHandler  MeshConnectedFunc
 }
 
 func nodeIdToMacAddr(nodeId meshid.NodeID) []byte {
@@ -94,6 +96,9 @@ func (c *MeshtasticClient) onMqttConnected() {
 	c.log.Debug().
 		Str("topic", c.mqttClient.TopicRoot()).
 		Msg("Connected to MQTT broker")
+	if c.onConnectHandler != nil {
+		c.onConnectHandler(c)
+	}
 }
 
 func (c *MeshtasticClient) onMqttReconnecting() {
@@ -130,6 +135,10 @@ func (c *MeshtasticClient) AddEventHandler(handler MeshEventFunc) {
 
 func (c *MeshtasticClient) SetIsManagedNodeHandler(handler IsManagedFunc) {
 	c.managedNodeFunc = handler
+}
+
+func (c *MeshtasticClient) SetOnConnectHandler(handler MeshConnectedFunc) {
+	c.onConnectHandler = handler
 }
 
 func (c *MeshtasticClient) generateKey(key string) ([]byte, error) {
