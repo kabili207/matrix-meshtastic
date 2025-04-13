@@ -151,7 +151,7 @@ func (c *MeshtasticClient) TryJoinChannels(ctx context.Context) {
 	portals, _ := c.bridge.GetAllPortalsWithMXID(ctx)
 
 	for _, p := range portals {
-		if channelID, channelKey, err := meshid.ParsePortalID(p.ID); err != nil {
+		if channelID, channelKey, err := meshid.ParsePortalID(p.ID); err == nil {
 			c.MeshClient.AddChannel(channelID, channelKey)
 		}
 	}
