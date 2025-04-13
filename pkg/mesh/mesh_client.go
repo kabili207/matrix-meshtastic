@@ -30,6 +30,7 @@ const (
 )
 
 type MeshEventFunc func(event any)
+type IsManagedFunc func(nodeID meshid.NodeID) bool
 
 type MeshtasticClient struct {
 	startTime         *time.Time
@@ -41,6 +42,7 @@ type MeshtasticClient struct {
 	seenNodes         map[meshid.NodeID]MeshNodeInfo
 	eventHandlers     []MeshEventFunc
 	log               zerolog.Logger
+	managedNodeFunc   IsManagedFunc
 }
 
 func nodeIdToMacAddr(nodeId meshid.NodeID) []byte {
@@ -48,12 +50,6 @@ func nodeIdToMacAddr(nodeId meshid.NodeID) []byte {
 	binary.BigEndian.PutUint32(a, uint32(nodeId))
 	// Set first byte to 0xA so it's marked as locally administered
 	return []byte{0xA, 0, a[0], a[1], a[2], a[3]}
-}
-
-func (c *MeshtasticClient) IsManagedNode(nodeId meshid.NodeID) bool {
-	ourPrefix := c.nodeId & 0xFF000000
-	nodePrefix := nodeId & 0xFF000000
-	return ourPrefix == nodePrefix
 }
 
 func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger zerolog.Logger) *MeshtasticClient {
@@ -71,7 +67,7 @@ func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger z
 		eventHandlers:     []MeshEventFunc{},
 		log:               logger,
 	}
-	//mqttClient.SetOnConnectHandler(mc.onMqttConnected)
+	mqttClient.SetOnConnectHandler(mc.onMqttConnected)
 	mqttClient.SetReconnectingHandler(mc.onMqttReconnecting)
 	mqttClient.SetConnectionLostHandler(mc.onMqttConnectionLost)
 
@@ -132,6 +128,10 @@ func (c *MeshtasticClient) AddEventHandler(handler MeshEventFunc) {
 	c.eventHandlers = append(c.eventHandlers, handler)
 }
 
+func (c *MeshtasticClient) SetIsManagedNodeHandler(handler IsManagedFunc) {
+	c.managedNodeFunc = handler
+}
+
 func (c *MeshtasticClient) generateKey(key string) ([]byte, error) {
 	// Pad the key with '=' characters to ensure it's a valid base64 string
 	padding := (4 - len(key)%4) % 4
@@ -158,7 +158,7 @@ func (c *MeshtasticClient) channelHandler(channel string) mqtt.HandlerFunc {
 			return
 		}
 
-		if c.IsManagedNode(meshid.NodeID(env.Packet.From)) {
+		if c.managedNodeFunc(meshid.NodeID(env.Packet.From)) {
 			return
 		}
 
@@ -300,7 +300,7 @@ type PacketInfo struct {
 
 func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info PacketInfo) (packetID uint32, err error) {
 
-	if !c.IsManagedNode(meshid.NodeID(info.From)) {
+	if !c.managedNodeFunc(meshid.NodeID(info.From)) {
 		return 0, fmt.Errorf("from node is not managed by this bridge: %08x", info.From)
 	}
 
@@ -410,7 +410,7 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 		return fmt.Errorf("nil message")
 	}
 
-	if c.IsManagedNode(meshid.NodeID(envelope.Packet.From)) {
+	if c.managedNodeFunc(meshid.NodeID(envelope.Packet.From)) {
 		return nil
 	}
 

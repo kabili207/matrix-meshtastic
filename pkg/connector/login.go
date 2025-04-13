@@ -92,7 +92,7 @@ func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string
 		return nil, fmt.Errorf("failed to log in to MQTT server: %w", err)
 	}
 
-	userNodeId := sl.Main.Config.BaseNodeId
+	userNodeId := sl.Main.GetBaseNodeID()
 
 	// Correct type is networkid.UserLoginID
 	var loginID networkid.UserLoginID = meshid.MakeUserLoginID(root_topic)

@@ -4,7 +4,6 @@ import (
 	_ "embed"
 	"fmt"
 
-	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"go.mau.fi/util/configupgrade"
 )
 
@@ -12,7 +11,6 @@ import (
 var ExampleConfig string
 
 type Config struct {
-	BaseNodeId     meshid.NodeID `yaml:"node_id"`
 	LongName       string        `yaml:"long_name"`
 	ShortName      string        `yaml:"short_name"`
 	PrimaryChannel ChannelConfig `yaml:"primary_channel"`
@@ -31,7 +29,7 @@ type ChannelConfig struct {
 }
 
 func upgradeConfig(helper configupgrade.Helper) {
-	helper.Copy(configupgrade.Int, "node_id")
+	//helper.Copy(configupgrade.Int, "node_id")
 	helper.Copy(configupgrade.Str, "long_name")
 	helper.Copy(configupgrade.Str, "short_name")
 	helper.Copy(configupgrade.Str, "primary_channel", "name")

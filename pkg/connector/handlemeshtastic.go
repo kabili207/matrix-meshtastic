@@ -65,11 +65,11 @@ func (c *MeshtasticClient) handleMeshLocation(evt *mesh.MeshLocationEvent) {
 
 func (c *MeshtasticClient) handleMeshChannelJoined(evt *mesh.MeshChannelJoined) {
 
-	ctx := context.Background() // Use a background context for this async task
+	ctx := context.Background()
 	login := c.UserLogin
-	user := login.User // Get the User object
+	user := login.User
 	log := c.log.With().Str("user_mxid", string(user.MXID)).Str("login_id", string(login.ID)).Logger()
-	ctx = log.WithContext(ctx) // Add logger to context for subsequent calls
+	ctx = log.WithContext(ctx)
 
 	portalKey := c.makePortalKey(evt.ChannelID, evt.ChannelKey)
 
@@ -176,7 +176,7 @@ func (c *MeshtasticClient) requestGhostNodeInfo(ghostID networkid.UserID) {
 		return
 	}
 	// TODO: call c.sendNodeInfo instead for consistency?
-	err = c.MeshClient.SendNodeInfo(c.main.Config.BaseNodeId, nodeId, c.main.Config.LongName, c.main.Config.ShortName, true)
+	err = c.MeshClient.SendNodeInfo(c.main.GetBaseNodeID(), nodeId, c.main.Config.LongName, c.main.Config.ShortName, true)
 	if err != nil {
 		log.Err(err).
 			Msg("unable to request node info")
@@ -192,7 +192,7 @@ func (c *MeshtasticClient) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 		Stringer("to_node_id", evt.Envelope.To).
 		Logger()
 	ctx := log.WithContext(context.Background())
-	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(evt.Envelope.From), evt.Envelope.To != c.main.Config.BaseNodeId)
+	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(evt.Envelope.From), evt.Envelope.To != c.main.GetBaseNodeID())
 	if err != nil {
 		log.Err(err).Msg("Failed to get ghost")
 		return
@@ -225,14 +225,14 @@ func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode meshid.NodeID, wantRepl
 		Stringer("from_node_id", fromNode).
 		Stringer("to_node_id", toNode).
 		Logger()
-	if !c.MeshClient.IsManagedNode(fromNode) {
+	if !c.main.IsManagedNode(fromNode) {
 		// We have no authority over this node
 		log.Debug().Msg("Ignoring node info request. Not our node")
 		return
 	}
 
 	ctx := log.WithContext(context.Background())
-	if fromNode == c.main.Config.BaseNodeId {
+	if fromNode == c.main.GetBaseNodeID() {
 		log.Debug().Msg("Sending from base node")
 		err := c.MeshClient.SendNodeInfo(fromNode, toNode, c.main.Config.LongName, c.main.Config.ShortName, wantReply)
 		if err != nil {
@@ -262,8 +262,8 @@ func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode meshid.NodeID, wantRepl
 		}
 	}
 	if notifyUser {
-		// TODO: Send a notice in the portal informing the user how to set their mesh names
 		log.Debug().Msg("Notifying user...")
+		// TODO: Send a notice in the portal informing the user how to set their mesh names
 	}
 }
 

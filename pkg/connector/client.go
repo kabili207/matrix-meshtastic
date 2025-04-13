@@ -2,7 +2,6 @@ package connector
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
@@ -101,13 +100,6 @@ func (s *MeshtasticClient) makePortalKey(channelID string, channelKey *string) n
 	return key
 }
 
-//func (s *MeshtasticClient) makeDMPortalKey(serviceID libsignalgo.ServiceID) networkid.PortalKey {
-//	return networkid.PortalKey{
-//		ID:       signalid.MakeDMPortalID(serviceID),
-//		Receiver: s.UserLogin.ID,
-//	}
-//}
-
 func (s *MeshtasticClient) makeEventSender(sender meshid.NodeID) bridgev2.EventSender {
 	meta := s.UserLogin.Metadata.(*UserLoginMetadata)
 	return bridgev2.EventSender{
@@ -152,7 +144,7 @@ func (tc *MeshtasticClient) GetChatInfo(ctx context.Context, portal *bridgev2.Po
 
 func (c *MeshtasticClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
 	return &bridgev2.UserInfo{
-		Name: ptr.Ptr(fmt.Sprintf("%s", ghost.ID)),
+		Name: ptr.Ptr(string(ghost.ID)),
 	}, nil
 }
 

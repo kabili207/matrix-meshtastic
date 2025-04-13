@@ -9,7 +9,7 @@ func (c *MeshtasticClient) handleTraceroute(env *pb.ServiceEnvelope, message *pb
 
 	toNode := meshid.NodeID(env.Packet.To)
 	fromNode := meshid.NodeID(env.Packet.From)
-	if !c.IsManagedNode(toNode) {
+	if !c.managedNodeFunc(toNode) {
 		return
 	}
 

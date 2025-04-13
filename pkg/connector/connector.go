@@ -4,11 +4,11 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"hash/crc32"
 	"log/slog"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
-	"github.com/martinlindhe/crc24"
 	"github.com/meshnet-gophers/meshtastic-go/mqtt"
 	"github.com/rs/zerolog"
 	slogzerolog "github.com/samber/slog-zerolog/v2"
@@ -19,9 +19,11 @@ import (
 )
 
 type MeshtasticConnector struct {
-	log    zerolog.Logger
-	bridge *bridgev2.Bridge
-	Config Config
+	log              zerolog.Logger
+	bridge           *bridgev2.Bridge
+	Config           Config
+	baseNodeID       meshid.NodeID
+	managedNodeCache map[meshid.NodeID]bool
 }
 
 var _ bridgev2.NetworkConnector = (*MeshtasticConnector)(nil)
@@ -29,13 +31,17 @@ var _ bridgev2.NetworkConnector = (*MeshtasticConnector)(nil)
 // NewSimpleNetworkConnector creates a new instance of SimpleNetworkConnector
 func NewMeshtasticConnector(log zerolog.Logger) *MeshtasticConnector {
 	return &MeshtasticConnector{
-		log: log.With().Str("component", "network-connector").Logger(),
+		log:              log.With().Str("component", "network-connector").Logger(),
+		managedNodeCache: map[meshid.NodeID]bool{},
 	}
 }
 
 func (c *MeshtasticConnector) Init(bridge *bridgev2.Bridge) {
 	c.bridge = bridge
 	c.log = c.bridge.Log
+	if c.managedNodeCache == nil {
+		c.managedNodeCache = map[meshid.NodeID]bool{}
+	}
 
 	c.bridge.Commands.(*commands.Processor).AddHandlers(cmdJoinChannel)
 	c.bridge.Commands.(*commands.Processor).AddHandlers(cmdUpdateNames)
@@ -60,11 +66,36 @@ func (c *MeshtasticConnector) GetNetworkID() string {
 	return c.GetName().NetworkID
 }
 
+func (c *MeshtasticConnector) GetBaseNodeID() meshid.NodeID {
+	if c.baseNodeID == 0 {
+		c.baseNodeID = c.MXIDToNodeId(c.bridge.Bot.GetMXID())
+	}
+	return c.baseNodeID
+}
+
+func (c *MeshtasticConnector) IsManagedNode(nodeID meshid.NodeID) bool {
+	if v, ok := c.managedNodeCache[nodeID]; ok {
+		return v
+	}
+	baseNode := c.GetBaseNodeID()
+	if nodeID == baseNode {
+		c.managedNodeCache[baseNode] = true
+		return true
+	}
+	ctx := context.Background()
+	ghost, err := c.bridge.GetExistingGhostByID(ctx, meshid.MakeUserID(nodeID))
+	if err != nil {
+		return false
+	}
+	meta, ok := ghost.Metadata.(*GhostMetadata)
+	isManaged := ok && meta.UserMXID != ""
+	c.managedNodeCache[nodeID] = isManaged
+	return isManaged
+}
+
 func (c *MeshtasticConnector) MXIDToNodeId(mxid id.UserID) meshid.NodeID {
 	mxidBytes := []byte(mxid.String())
-	checksum := crc24.ChecksumOpenPGP(mxidBytes)
-	prefix := c.Config.BaseNodeId & 0xFF000000
-	return meshid.NodeID(checksum) | prefix
+	return meshid.NodeID(crc32.ChecksumIEEE(mxidBytes))
 }
 
 func (tc *MeshtasticConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilities {
@@ -167,7 +198,8 @@ func (c *MeshtasticConnector) LoadUserLogin(ctx context.Context, login *bridgev2
 
 	mqttClient := c.MakeMqttClient(meta.RootTopic)
 
-	meshClient := mesh.NewMeshtasticClient(c.Config.BaseNodeId, mqttClient, c.log.With().Str("topic", meta.RootTopic).Logger())
+	meshClient := mesh.NewMeshtasticClient(c.GetBaseNodeID(), mqttClient, c.log.With().Str("topic", meta.RootTopic).Logger())
+	meshClient.SetIsManagedNodeHandler(c.IsManagedNode)
 
 	login.Client = &MeshtasticClient{
 		UserLogin:  login,
