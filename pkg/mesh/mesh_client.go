@@ -201,7 +201,7 @@ func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortN
 	}
 
 	nodeInfo := pb.User{
-		Id:         fmt.Sprintf("!%x", from),
+		Id:         from.String(),
 		LongName:   longName,
 		ShortName:  shortName,
 		IsLicensed: false,
@@ -301,7 +301,7 @@ type PacketInfo struct {
 func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info PacketInfo) (packetID uint32, err error) {
 
 	if !c.managedNodeFunc(meshid.NodeID(info.From)) {
-		return 0, fmt.Errorf("from node is not managed by this bridge: %08x", info.From)
+		return 0, fmt.Errorf("from node is not managed by this bridge: %s", info.From)
 	}
 
 	bitfield := uint32(BITFIELD_OkToMQTT)
@@ -380,7 +380,7 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 
 	env := pb.ServiceEnvelope{
 		ChannelId: channel,
-		GatewayId: fmt.Sprintf("!%x", c.nodeId),
+		GatewayId: c.nodeId.String(),
 		Packet:    &pkt,
 	}
 
@@ -393,7 +393,7 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 	c.printPacketDetails(&env, &data)
 
 	reply := mqtt.Message{
-		Topic:   fmt.Sprintf("%s/!%08x", c.mqttClient.GetFullTopicForChannel(channel), c.nodeId),
+		Topic:   fmt.Sprintf("%s/%s", c.mqttClient.GetFullTopicForChannel(channel), c.nodeId),
 		Payload: rawEnv,
 	}
 	return packetId, c.mqttClient.Publish(&reply)

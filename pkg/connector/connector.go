@@ -87,9 +87,14 @@ func (c *MeshtasticConnector) IsManagedNode(nodeID meshid.NodeID) bool {
 	if err != nil {
 		return false
 	}
+	if ghost == nil {
+		c.managedNodeCache[baseNode] = false
+		return false
+	}
 	meta, ok := ghost.Metadata.(*GhostMetadata)
 	isManaged := ok && meta.UserMXID != ""
 	c.managedNodeCache[nodeID] = isManaged
+
 	return isManaged
 }
 

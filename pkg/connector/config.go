@@ -29,7 +29,6 @@ type ChannelConfig struct {
 }
 
 func upgradeConfig(helper configupgrade.Helper) {
-	//helper.Copy(configupgrade.Int, "node_id")
 	helper.Copy(configupgrade.Str, "long_name")
 	helper.Copy(configupgrade.Str, "short_name")
 	helper.Copy(configupgrade.Str, "primary_channel", "name")

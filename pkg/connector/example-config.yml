@@ -1,10 +1,4 @@
 
-# The node ID that the bridge should use on the meshtastic network
-# The first two bytes will be used to generate the node IDs of every
-# user behind the bridge, so care should be taken to ensure it doesn't
-# conflict with actual devices.
-node_id: 0x08000000
-
 # The full name of the bridge on the Meshtastic network.
 # Must be less than 40 bytes
 long_name: "Matrix Bridge"
