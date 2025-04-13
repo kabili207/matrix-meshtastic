@@ -219,20 +219,20 @@ func (c *MeshtasticClient) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 }
 
 func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode mesh.NodeId, wantReply bool) {
-	if !c.MeshClient.IsManagedNode(uint32(fromNode)) {
-		// We have no authority over this node
-		return
-	}
-
 	log := c.UserLogin.Log.With().
 		Str("action", "send_nodeinfo").
 		Stringer("from_node_id", fromNode).
 		Stringer("to_node_id", toNode).
 		Logger()
+	if !c.MeshClient.IsManagedNode(uint32(fromNode)) {
+		// We have no authority over this node
+		log.Debug().Msg("Ignoring node info request. Not our node")
+		return
+	}
 
 	ctx := log.WithContext(context.Background())
 	if fromNode == mesh.NodeId(c.main.Config.BaseNodeId) {
-		err := c.MeshClient.SendNodeInfo(uint32(fromNode), mesh.BROADCAST_ID, c.main.Config.LongName, c.main.Config.LongName, wantReply)
+		err := c.MeshClient.SendNodeInfo(uint32(fromNode), uint32(toNode), c.main.Config.LongName, c.main.Config.LongName, wantReply)
 		if err != nil {
 			log.Err(err).Msg("Failed to send node info")
 		}
@@ -245,11 +245,11 @@ func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode mesh.NodeId, wantReply 
 		log.Err(err).Msg("Failed to get ghost")
 	} else {
 		if meta, ok := ghost.Metadata.(*GhostMetadata); ok && meta.LongName != "" && meta.ShortName != "" {
-			err = c.MeshClient.SendNodeInfo(uint32(fromNode), mesh.BROADCAST_ID, meta.LongName, meta.ShortName, wantReply)
+			err = c.MeshClient.SendNodeInfo(uint32(fromNode), uint32(toNode), meta.LongName, meta.ShortName, wantReply)
 		} else {
 			senderStr := fromNode.String()
 			shortName := senderStr[len(senderStr)-4:]
-			err = c.MeshClient.SendNodeInfo(uint32(fromNode), mesh.BROADCAST_ID, senderStr, shortName, wantReply)
+			err = c.MeshClient.SendNodeInfo(uint32(fromNode), uint32(toNode), senderStr, shortName, wantReply)
 			notifyUser = true
 		}
 		if err != nil {
