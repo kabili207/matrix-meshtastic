@@ -188,7 +188,8 @@ func (c *MeshtasticClient) requestGhostNodeInfo(ghostID networkid.UserID) {
 func (c *MeshtasticClient) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 	log := c.UserLogin.Log.With().
 		Str("action", "handle_mesh_nodeinfo").
-		Stringer("node_id", evt.Envelope.From).
+		Stringer("from_node_id", evt.Envelope.From).
+		Stringer("to_node_id", evt.Envelope.To).
 		Logger()
 	ctx := log.WithContext(context.Background())
 	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(uint32(evt.Envelope.From)), evt.Envelope.To != mesh.NodeId(c.main.Config.BaseNodeId))
