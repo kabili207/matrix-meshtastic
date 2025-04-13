@@ -1,18 +1,12 @@
 package mesh
 
-import "fmt"
-
-type NodeId uint32
-
-func (n NodeId) String() string {
-	return fmt.Sprintf("!%08x", uint32(n))
-}
+import "github.com/kabili207/matrix-meshtastic/pkg/meshid"
 
 type MeshEnvelope struct {
 	ChannelID  string
 	ChannelKey *string
-	From       NodeId
-	To         NodeId
+	From       meshid.NodeID
+	To         meshid.NodeID
 	Timestamp  uint32
 	PacketId   uint32
 }

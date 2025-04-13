@@ -108,12 +108,12 @@ func (s *MeshtasticClient) makePortalKey(channelID string, channelKey *string) n
 //	}
 //}
 
-func (s *MeshtasticClient) makeEventSender(sender mesh.NodeId) bridgev2.EventSender {
+func (s *MeshtasticClient) makeEventSender(sender meshid.NodeID) bridgev2.EventSender {
 	meta := s.UserLogin.Metadata.(*UserLoginMetadata)
 	return bridgev2.EventSender{
-		IsFromMe:    meta.ServerNodeId == uint32(sender),
+		IsFromMe:    meta.ServerNodeId == sender,
 		SenderLogin: s.UserLogin.ID,
-		Sender:      meshid.MakeUserID(uint32(sender)),
+		Sender:      meshid.MakeUserID(sender),
 	}
 }
 

@@ -9,7 +9,6 @@ import (
 	// Added time for createWelcomeRoomAndSendIntro call
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
-	"github.com/martinlindhe/crc24"
 	"github.com/rs/zerolog" // Added ptr for createWelcomeRoomAndSendIntro call
 
 	// Added mautrix for createWelcomeRoomAndSendIntro call
@@ -60,12 +59,6 @@ func (sl *MeshtasticLogin) Start(ctx context.Context) (*bridgev2.LoginStep, erro
 			},
 		},
 	}, nil
-}
-
-func mxidToNodeId(mxid string) uint32 {
-	mxidBytes := []byte(mxid)
-	checksum := crc24.ChecksumOpenPGP(mxidBytes)
-	return checksum | (0x77 << 24)
 }
 
 func nodeIdToMacAddr(nodeId uint32) []byte {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
 	"github.com/meshnet-gophers/meshtastic-go/mqtt"
 	"github.com/meshnet-gophers/meshtastic-go/radio"
@@ -23,7 +24,7 @@ const (
 	BITFIELD_WantResponse BitFieldMask = 2
 
 	// Node ID used for broadcasting
-	BROADCAST_ID uint32 = 0xffffffff
+	BROADCAST_ID meshid.NodeID = 0xffffffff
 
 	DefaultChannelName string = "LongFast"
 )
@@ -32,29 +33,30 @@ type MeshEventFunc func(event any)
 
 type MeshtasticClient struct {
 	startTime         *time.Time
-	nodeId            uint32
+	nodeId            meshid.NodeID
 	mqttClient        *mqtt.Client
 	channelKeys       map[string][]byte
 	channelKeyStrings map[string]string
 	currentPacketId   uint32
-	seenNodes         map[uint32]MeshNodeInfo
+	seenNodes         map[meshid.NodeID]MeshNodeInfo
 	eventHandlers     []MeshEventFunc
 	log               zerolog.Logger
 }
 
-func nodeIdToMacAddr(nodeId uint32) []byte {
+func nodeIdToMacAddr(nodeId meshid.NodeID) []byte {
 	a := make([]byte, 4)
-	binary.BigEndian.PutUint32(a, nodeId)
+	binary.BigEndian.PutUint32(a, uint32(nodeId))
 	// Set first byte to 0xA so it's marked as locally administered
 	return []byte{0xA, 0, a[0], a[1], a[2], a[3]}
 }
-func (c *MeshtasticClient) IsManagedNode(nodeId uint32) bool {
+
+func (c *MeshtasticClient) IsManagedNode(nodeId meshid.NodeID) bool {
 	ourPrefix := c.nodeId & 0xFF000000
 	nodePrefix := nodeId & 0xFF000000
 	return ourPrefix == nodePrefix
 }
 
-func NewMeshtasticClient(nodeId uint32, mqttClient *mqtt.Client, logger zerolog.Logger) *MeshtasticClient {
+func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger zerolog.Logger) *MeshtasticClient {
 	now := time.Now()
 	now = now.UTC()
 
@@ -65,7 +67,7 @@ func NewMeshtasticClient(nodeId uint32, mqttClient *mqtt.Client, logger zerolog.
 		channelKeys:       map[string][]byte{},
 		channelKeyStrings: map[string]string{},
 		currentPacketId:   uint32(now.Unix()),
-		seenNodes:         map[uint32]MeshNodeInfo{},
+		seenNodes:         map[meshid.NodeID]MeshNodeInfo{},
 		eventHandlers:     []MeshEventFunc{},
 		log:               logger,
 	}
@@ -156,7 +158,7 @@ func (c *MeshtasticClient) channelHandler(channel string) mqtt.HandlerFunc {
 			return
 		}
 
-		if c.IsManagedNode(env.Packet.From) {
+		if c.IsManagedNode(meshid.NodeID(env.Packet.From)) {
 			return
 		}
 
@@ -182,7 +184,7 @@ type MeshNodeInfo struct {
 }
 
 // TODO: Create a user info struct to hold from, long, and short names
-func (c *MeshtasticClient) SendNodeInfo(from, to uint32, longName, shortName string, wantAck bool) error {
+func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortName string, wantAck bool) error {
 
 	if len([]byte(longName)) > 39 {
 		return errors.New("long name must be less than 40 bytes")
@@ -219,7 +221,7 @@ func (c *MeshtasticClient) SendNodeInfo(from, to uint32, longName, shortName str
 }
 
 // TODO: Create a user info struct to hold from, long, and short names
-func (c *MeshtasticClient) SendTelemetry(from, to uint32) error {
+func (c *MeshtasticClient) SendTelemetry(from, to meshid.NodeID) error {
 
 	now := time.Now()
 	now = now.UTC()
@@ -245,7 +247,7 @@ func (c *MeshtasticClient) SendTelemetry(from, to uint32) error {
 }
 
 // TODO: Create a user info struct to hold from, long, and short names
-func (c *MeshtasticClient) SendPosition(from, to uint32, latitude, longitude float32, timestamp *time.Time) (packetID uint32, err error) {
+func (c *MeshtasticClient) SendPosition(from, to meshid.NodeID, latitude, longitude float32, timestamp *time.Time) (packetID uint32, err error) {
 
 	now := time.Now()
 	now = now.UTC()
@@ -262,12 +264,12 @@ func (c *MeshtasticClient) SendPosition(from, to uint32, latitude, longitude flo
 	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{PortNum: pb.PortNum_POSITION_APP, Encrypted: true, From: from, To: to})
 }
 
-func (c *MeshtasticClient) SendMessage(from, to uint32, channel string, message string) (uint32, error) {
+func (c *MeshtasticClient) SendMessage(from, to meshid.NodeID, channel string, message string) (uint32, error) {
 	data := []byte(message)
 	return c.sendBytes(channel, data, PacketInfo{PortNum: pb.PortNum_TEXT_MESSAGE_APP, Encrypted: true, From: from, To: to})
 }
 
-func (c *MeshtasticClient) SendReaction(from, to uint32, channel string, targetPacketId uint32, emoji string) (packetID uint32, err error) {
+func (c *MeshtasticClient) SendReaction(from, to meshid.NodeID, channel string, targetPacketId uint32, emoji string) (packetID uint32, err error) {
 	data := []byte(emoji)
 	return c.sendBytes(channel, data, PacketInfo{
 		PortNum:   pb.PortNum_TEXT_MESSAGE_APP,
@@ -290,7 +292,7 @@ func (c *MeshtasticClient) sendProtoMessage(channel string, message proto.Messag
 type PacketInfo struct {
 	PortNum            pb.PortNum
 	Encrypted          bool
-	From, To           uint32
+	From, To           meshid.NodeID
 	RequestId, ReplyId uint32
 	WantAck            bool
 	Emoji              bool
@@ -298,7 +300,7 @@ type PacketInfo struct {
 
 func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info PacketInfo) (packetID uint32, err error) {
 
-	if !c.IsManagedNode(info.From) {
+	if !c.IsManagedNode(meshid.NodeID(info.From)) {
 		return 0, fmt.Errorf("from node is not managed by this bridge: %08x", info.From)
 	}
 
@@ -347,8 +349,8 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 
 	pkt := pb.MeshPacket{
 		Id:       packetId,
-		To:       info.To,
-		From:     info.From,
+		To:       uint32(info.To),
+		From:     uint32(info.From),
 		HopLimit: 2,
 		HopStart: uint32(maxHops),
 		ViaMqtt:  false,
@@ -367,7 +369,7 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 			Decoded: &data,
 		}
 	} else {
-		encodedBytes, err := radio.XOR(rawData, key, packetId, info.From)
+		encodedBytes, err := radio.XOR(rawData, key, packetId, uint32(info.From))
 		if err != nil {
 			return packetId, err
 		}
@@ -408,15 +410,15 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 		return fmt.Errorf("nil message")
 	}
 
-	if c.IsManagedNode(envelope.Packet.From) {
+	if c.IsManagedNode(meshid.NodeID(envelope.Packet.From)) {
 		return nil
 	}
 
 	chanKey := c.channelKeyStrings[envelope.ChannelId]
 	meshEventEnv := MeshEnvelope{
 		PacketId:   envelope.Packet.Id,
-		To:         NodeId(envelope.Packet.To),
-		From:       NodeId(envelope.Packet.From),
+		To:         meshid.NodeID(envelope.Packet.To),
+		From:       meshid.NodeID(envelope.Packet.From),
 		ChannelID:  envelope.ChannelId,
 		ChannelKey: &chanKey,
 		Timestamp:  envelope.Packet.RxTime,
@@ -430,14 +432,14 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 			evt = &MeshReactionEvent{
 				Envelope: meshEventEnv,
 				Emoji:    string(message.Payload),
-				IsDM:     envelope.Packet.To != BROADCAST_ID,
+				IsDM:     envelope.Packet.To != uint32(BROADCAST_ID),
 				ReplyId:  message.ReplyId,
 			}
 		} else {
 			evt = &MeshMessageEvent{
 				Envelope: meshEventEnv,
 				Message:  string(message.Payload),
-				IsDM:     envelope.Packet.To != BROADCAST_ID,
+				IsDM:     envelope.Packet.To != uint32(BROADCAST_ID),
 			}
 		}
 	case pb.PortNum_NODEINFO_APP:
@@ -499,8 +501,8 @@ func (c *MeshtasticClient) printPacketDetails(env *pb.ServiceEnvelope, data any)
 	pkt := env.Packet
 	log := c.log.With().
 		Str("channel", env.ChannelId).
-		Stringer("from", NodeId(pkt.From)).
-		Stringer("to", NodeId(pkt.To)).
+		Stringer("from", meshid.NodeID(pkt.From)).
+		Stringer("to", meshid.NodeID(pkt.To)).
 		Uint32("packet_id", pkt.Id).
 		Interface("payload", data).
 		Logger()

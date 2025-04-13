@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
+	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"github.com/martinlindhe/crc24"
 	"github.com/meshnet-gophers/meshtastic-go/mqtt"
 	"github.com/rs/zerolog"
@@ -59,11 +60,11 @@ func (c *MeshtasticConnector) GetNetworkID() string {
 	return c.GetName().NetworkID
 }
 
-func (c *MeshtasticConnector) MXIDToNodeId(mxid id.UserID) uint32 {
+func (c *MeshtasticConnector) MXIDToNodeId(mxid id.UserID) meshid.NodeID {
 	mxidBytes := []byte(mxid.String())
 	checksum := crc24.ChecksumOpenPGP(mxidBytes)
 	prefix := c.Config.BaseNodeId & 0xFF000000
-	return checksum | prefix
+	return meshid.NodeID(checksum) | prefix
 }
 
 func (tc *MeshtasticConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilities {
@@ -97,8 +98,8 @@ func (c *MeshtasticConnector) Stop(ctx context.Context) error {
 }
 
 type UserLoginMetadata struct {
-	ServerNodeId uint32 `json:"node_id"`
-	RootTopic    string `json:"root_topic"`
+	ServerNodeId meshid.NodeID `json:"node_id"`
+	RootTopic    string        `json:"root_topic"`
 }
 
 type PortalMetadata struct {

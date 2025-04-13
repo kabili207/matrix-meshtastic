@@ -46,7 +46,7 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 		return nil, nil
 	}
 
-	fromNode := mxidToNodeId(msg.Event.Sender.String())
+	fromNode := c.main.MXIDToNodeId(msg.Event.Sender)
 
 	channelId, _, err := meshid.ParsePortalID(msg.Portal.ID)
 	if err != nil {
@@ -184,8 +184,8 @@ func (c *MeshtasticClient) updateGhostNames(longName, shortName string) func(con
 	}
 }
 
-func (s *MeshtasticClient) PreHandleMatrixReaction(ctx context.Context, msg *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {
-	fromNode := mxidToNodeId(msg.Event.Sender.String())
+func (c *MeshtasticClient) PreHandleMatrixReaction(ctx context.Context, msg *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {
+	fromNode := c.main.MXIDToNodeId(msg.Event.Sender)
 	return bridgev2.MatrixReactionPreResponse{
 		SenderID: meshid.MakeUserID(fromNode),
 		EmojiID:  networkid.EmojiID(msg.Content.RelatesTo.Key),
@@ -233,7 +233,7 @@ func (mc *MeshtasticClient) HandleMatrixMembership(ctx context.Context, msg *bri
 	}
 
 	var err error
-	var nodeID uint32 = 0
+	var nodeID meshid.NodeID = 0
 	var ghost *bridgev2.Ghost = nil
 
 	switch target := msg.Target.(type) {

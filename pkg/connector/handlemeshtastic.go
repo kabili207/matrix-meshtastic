@@ -60,7 +60,7 @@ func (c *MeshtasticClient) handleMeshLocation(evt *mesh.MeshLocationEvent) {
 		Float32("latitude", evt.Latitude).
 		Float32("longitude", evt.Latitude).
 		Msg("Location update received")
-	c.getRemoteGhost(context.Background(), meshid.MakeUserID(uint32(evt.Envelope.From)), true)
+	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
 }
 
 func (c *MeshtasticClient) handleMeshChannelJoined(evt *mesh.MeshChannelJoined) {
@@ -116,7 +116,7 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 		return
 	}
 
-	c.getRemoteGhost(context.Background(), meshid.MakeUserID(uint32(evt.Envelope.From)), true)
+	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
 
 	mess := simplevent.Message[*mesh.MeshMessageEvent]{
 		EventMeta: simplevent.EventMeta{
@@ -192,7 +192,7 @@ func (c *MeshtasticClient) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 		Stringer("to_node_id", evt.Envelope.To).
 		Logger()
 	ctx := log.WithContext(context.Background())
-	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(uint32(evt.Envelope.From)), evt.Envelope.To != mesh.NodeId(c.main.Config.BaseNodeId))
+	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(evt.Envelope.From), evt.Envelope.To != c.main.Config.BaseNodeId)
 	if err != nil {
 		log.Err(err).Msg("Failed to get ghost")
 		return
@@ -200,9 +200,9 @@ func (c *MeshtasticClient) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 
 	//c.sendMeshPresense(&evt.Envelope)
 
-	if evt.Envelope.To != mesh.NodeId(mesh.BROADCAST_ID) {
+	if evt.Envelope.To != mesh.BROADCAST_ID {
 		log.Debug().Msg("Broadcasting node info")
-		c.sendNodeInfo(evt.Envelope.To, mesh.NodeId(mesh.BROADCAST_ID), false)
+		c.sendNodeInfo(evt.Envelope.To, mesh.BROADCAST_ID, false)
 	}
 
 	if evt.LongName == "" {
@@ -219,22 +219,22 @@ func (c *MeshtasticClient) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 
 }
 
-func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode mesh.NodeId, wantReply bool) {
+func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode meshid.NodeID, wantReply bool) {
 	log := c.UserLogin.Log.With().
 		Str("action", "send_nodeinfo").
 		Stringer("from_node_id", fromNode).
 		Stringer("to_node_id", toNode).
 		Logger()
-	if !c.MeshClient.IsManagedNode(uint32(fromNode)) {
+	if !c.MeshClient.IsManagedNode(fromNode) {
 		// We have no authority over this node
 		log.Debug().Msg("Ignoring node info request. Not our node")
 		return
 	}
 
 	ctx := log.WithContext(context.Background())
-	if fromNode == mesh.NodeId(c.main.Config.BaseNodeId) {
+	if fromNode == c.main.Config.BaseNodeId {
 		log.Debug().Msg("Sending from base node")
-		err := c.MeshClient.SendNodeInfo(uint32(fromNode), uint32(toNode), c.main.Config.LongName, c.main.Config.ShortName, wantReply)
+		err := c.MeshClient.SendNodeInfo(fromNode, toNode, c.main.Config.LongName, c.main.Config.ShortName, wantReply)
 		if err != nil {
 			log.Err(err).Msg("Failed to send node info")
 		}
@@ -242,18 +242,18 @@ func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode mesh.NodeId, wantReply 
 	}
 
 	notifyUser := false
-	ghost, err := c.bridge.GetGhostByID(ctx, meshid.MakeUserID(uint32(fromNode)))
+	ghost, err := c.bridge.GetGhostByID(ctx, meshid.MakeUserID(fromNode))
 	if err != nil {
 		log.Err(err).Msg("Failed to get ghost")
 	} else {
 		if meta, ok := ghost.Metadata.(*GhostMetadata); ok && meta.LongName != "" && meta.ShortName != "" {
 			log.Debug().Msg("Sending user configured node info")
-			err = c.MeshClient.SendNodeInfo(uint32(fromNode), uint32(toNode), meta.LongName, meta.ShortName, wantReply)
+			err = c.MeshClient.SendNodeInfo(fromNode, toNode, meta.LongName, meta.ShortName, wantReply)
 		} else {
 			log.Debug().Msg("Sending generated node info")
 			senderStr := fromNode.String()
 			shortName := senderStr[len(senderStr)-4:]
-			err = c.MeshClient.SendNodeInfo(uint32(fromNode), uint32(toNode), senderStr, shortName, wantReply)
+			err = c.MeshClient.SendNodeInfo(fromNode, toNode, senderStr, shortName, wantReply)
 			notifyUser = true
 		}
 		if err != nil {
@@ -280,7 +280,7 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 		return
 	}
 
-	c.getRemoteGhost(context.Background(), meshid.MakeUserID(uint32(evt.Envelope.From)), true)
+	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
 
 	mess := simplevent.Reaction{
 		EventMeta: simplevent.EventMeta{

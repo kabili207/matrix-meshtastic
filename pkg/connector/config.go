@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 
+	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"go.mau.fi/util/configupgrade"
 )
 
@@ -11,7 +12,7 @@ import (
 var ExampleConfig string
 
 type Config struct {
-	BaseNodeId     uint32        `yaml:"node_id"`
+	BaseNodeId     meshid.NodeID `yaml:"node_id"`
 	LongName       string        `yaml:"long_name"`
 	ShortName      string        `yaml:"short_name"`
 	PrimaryChannel ChannelConfig `yaml:"primary_channel"`

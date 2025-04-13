@@ -14,12 +14,27 @@ const (
 	separatorPortalID  = "|||"
 )
 
-func MakeUserID(nodeID uint32) networkid.UserID {
-	return networkid.UserID(fmt.Sprintf("%08x", nodeID))
+type NodeID uint32
+
+func (n NodeID) String() string {
+	return fmt.Sprintf("!%08x", uint32(n))
+}
+
+func ParseNodeID(nodeID string) (NodeID, error) {
+	v, _ := strings.CutPrefix(nodeID, "!")
+	packet64, err := strconv.ParseUint(string(v), 16, 32)
+	if err != nil {
+		return NodeID(uint32(0)), err
+	}
+	return NodeID(uint32(packet64)), nil
+}
+
+func MakeUserID(nodeID NodeID) networkid.UserID {
+	return networkid.UserID(fmt.Sprintf("%08x", uint32(nodeID)))
 }
 
 func MakeUserLoginID(rootTopic string) networkid.UserLoginID {
-	return networkid.UserLoginID(fmt.Sprintf("%s", rootTopic))
+	return networkid.UserLoginID(rootTopic)
 }
 
 func MakePortalID(channelId string, channelKey *string) networkid.PortalID {
@@ -30,9 +45,9 @@ func MakePortalID(channelId string, channelKey *string) networkid.PortalID {
 	return networkid.PortalID(fmt.Sprintf("%s%s%s", channelId, separatorPortalID, *channelKey))
 }
 
-func ParseUserID(userID networkid.UserID) (nodeID uint32, err error) {
+func ParseUserID(userID networkid.UserID) (nodeID NodeID, err error) {
 	packet64, err := strconv.ParseUint(string(userID), 16, 32)
-	nodeID = uint32(packet64)
+	nodeID = NodeID(uint32(packet64))
 	return
 }
 

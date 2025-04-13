@@ -1,33 +1,36 @@
 package mesh
 
 import (
+	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
 )
 
 func (c *MeshtasticClient) handleTraceroute(env *pb.ServiceEnvelope, message *pb.Data, disco *pb.RouteDiscovery) {
 
-	if !c.IsManagedNode(env.Packet.To) {
+	toNode := meshid.NodeID(env.Packet.To)
+	fromNode := meshid.NodeID(env.Packet.From)
+	if !c.IsManagedNode(toNode) {
 		return
 	}
 
 	isTowardsDestination := message.RequestId == 0
 
 	c.insertUnknownHops(env.Packet, disco, isTowardsDestination)
-	if env.Packet.To != c.nodeId {
+	if toNode != c.nodeId {
 		env.Packet.HopLimit -= 1
 		c.appendMyIdAndSnr(env.Packet, disco, isTowardsDestination, false)
 	}
 	c.appendMyIdAndSnr(env.Packet, disco, isTowardsDestination, true)
 
-	if env.Packet.To != c.nodeId {
+	if toNode != c.nodeId {
 		c.appendMyIdAndSnr(env.Packet, disco, !isTowardsDestination, false)
 	}
 
 	c.sendProtoMessage(env.ChannelId, disco, PacketInfo{
 		PortNum:   pb.PortNum_TRACEROUTE_APP,
 		Encrypted: true,
-		From:      env.Packet.To,
-		To:        env.Packet.From,
+		From:      toNode,
+		To:        fromNode,
 		RequestId: message.RequestId,
 	})
 }
@@ -57,7 +60,7 @@ func (c *MeshtasticClient) insertUnknownHops(packet *pb.MeshPacket, disco *pb.Ro
 
 		for i := 0; i < diff; i++ {
 			if routeCount < len(*route) {
-				r := append(*route, BROADCAST_ID)
+				r := append(*route, uint32(BROADCAST_ID))
 				route = &r
 				routeCount += 1
 			}
@@ -110,7 +113,7 @@ func (c *MeshtasticClient) appendMyIdAndSnr(packet *pb.MeshPacket, disco *pb.Rou
 	}
 
 	if routeCount <= len(*route) {
-		r := append(*route, c.nodeId)
+		r := append(*route, uint32(c.nodeId))
 		route = &r
 
 		if isTowardsDestination {
