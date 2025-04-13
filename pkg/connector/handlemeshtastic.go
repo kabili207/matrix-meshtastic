@@ -175,6 +175,7 @@ func (c *MeshtasticClient) requestGhostNodeInfo(ghostID networkid.UserID) {
 			Msg("unable to request node info")
 		return
 	}
+	// TODO: call c.sendNodeInfo instead for consistency?
 	err = c.MeshClient.SendNodeInfo(c.main.Config.BaseNodeId, nodeId, c.main.Config.LongName, c.main.Config.ShortName, true)
 	if err != nil {
 		log.Err(err).
@@ -198,24 +199,8 @@ func (c *MeshtasticClient) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 
 	//c.sendMeshPresense(&evt.Envelope)
 
-	if evt.Envelope.To != mesh.NodeId(mesh.BROADCAST_ID) && c.MeshClient.IsManagedNode(uint32(evt.Envelope.To)) {
-		mxGhost, err := c.bridge.GetGhostByID(ctx, meshid.MakeUserID(uint32(evt.Envelope.To)))
-		if err != nil {
-			log.Err(err).Msg("Failed to get ghost")
-		} else {
-			switch meta := mxGhost.Metadata.(type) {
-			case *GhostMetadata:
-				err = c.MeshClient.SendNodeInfo(uint32(evt.Envelope.To), mesh.BROADCAST_ID, meta.LongName, meta.ShortName, false)
-			default:
-				err = c.MeshClient.SendNodeInfo(uint32(evt.Envelope.To), mesh.BROADCAST_ID, mxGhost.Name, "", false)
-			}
-			if err != nil {
-				log.Err(err).
-					Stringer("node_id", evt.Envelope.To).
-					Msg("Failed to send node info")
-			}
-
-		}
+	if evt.Envelope.To != mesh.NodeId(mesh.BROADCAST_ID) {
+		c.sendNodeInfo(evt.Envelope.To, evt.Envelope.From, false)
 	}
 
 	if evt.LongName == "" {
@@ -230,6 +215,50 @@ func (c *MeshtasticClient) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 	ghost.UpdateInfo(ctx, userInfo)
 	log.Debug().Msg("Synced ghost info")
 
+}
+
+func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode mesh.NodeId, wantReply bool) {
+	if !c.MeshClient.IsManagedNode(uint32(fromNode)) {
+		// We have no authority over this node
+		return
+	}
+
+	log := c.UserLogin.Log.With().
+		Str("action", "send_nodeinfo").
+		Stringer("from_node_id", fromNode).
+		Stringer("to_node_id", toNode).
+		Logger()
+
+	ctx := log.WithContext(context.Background())
+	if fromNode == mesh.NodeId(c.main.Config.BaseNodeId) {
+		err := c.MeshClient.SendNodeInfo(uint32(fromNode), mesh.BROADCAST_ID, c.main.Config.LongName, c.main.Config.LongName, wantReply)
+		if err != nil {
+			log.Err(err).Msg("Failed to send node info")
+		}
+		return
+	}
+
+	notifyUser := false
+	ghost, err := c.bridge.GetGhostByID(ctx, meshid.MakeUserID(uint32(fromNode)))
+	if err != nil {
+		log.Err(err).Msg("Failed to get ghost")
+	} else {
+		if meta, ok := ghost.Metadata.(*GhostMetadata); ok && meta.LongName != "" && meta.ShortName != "" {
+			err = c.MeshClient.SendNodeInfo(uint32(fromNode), mesh.BROADCAST_ID, meta.LongName, meta.ShortName, wantReply)
+		} else {
+			senderStr := fromNode.String()
+			shortName := senderStr[len(senderStr)-4:]
+			err = c.MeshClient.SendNodeInfo(uint32(fromNode), mesh.BROADCAST_ID, senderStr, shortName, wantReply)
+			notifyUser = true
+		}
+		if err != nil {
+			log.Err(err).Msg("Failed to send node info")
+			return
+		}
+	}
+	if notifyUser {
+		// TODO: Send a notice in the portal informing the user how to set their mesh names
+	}
 }
 
 //func updateGhostLastSyncAt(_ context.Context, ghost *bridgev2.Ghost) bool {
