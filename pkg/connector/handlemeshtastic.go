@@ -234,7 +234,7 @@ func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode mesh.NodeId, wantReply 
 	ctx := log.WithContext(context.Background())
 	if fromNode == mesh.NodeId(c.main.Config.BaseNodeId) {
 		log.Debug().Msg("Sending from base node")
-		err := c.MeshClient.SendNodeInfo(uint32(fromNode), uint32(toNode), c.main.Config.LongName, c.main.Config.LongName, wantReply)
+		err := c.MeshClient.SendNodeInfo(uint32(fromNode), uint32(toNode), c.main.Config.LongName, c.main.Config.ShortName, wantReply)
 		if err != nil {
 			log.Err(err).Msg("Failed to send node info")
 		}

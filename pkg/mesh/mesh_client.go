@@ -3,6 +3,7 @@ package mesh
 import (
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -182,6 +183,12 @@ type MeshNodeInfo struct {
 
 // TODO: Create a user info struct to hold from, long, and short names
 func (c *MeshtasticClient) SendNodeInfo(from, to uint32, longName, shortName string, wantAck bool) error {
+
+	if len([]byte(longName)) > 39 {
+		return errors.New("long name must be less than 40 bytes")
+	} else if len([]byte(shortName)) > 4 {
+		return errors.New("short name must be less than 5 bytes")
+	}
 
 	role := pb.Config_DeviceConfig_CLIENT
 	hw := pb.HardwareModel_PRIVATE_HW
