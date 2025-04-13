@@ -333,16 +333,16 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 
 	channelHash, _ := radio.ChannelHash(channel, key)
 
-	maxHops := 4
+	maxHops := 3
 	if info.From == c.nodeId {
-		maxHops = 3
+		maxHops = 2
 	}
 
 	pkt := pb.MeshPacket{
 		Id:       packetId,
 		To:       info.To,
 		From:     info.From,
-		HopLimit: 3,
+		HopLimit: 2,
 		HopStart: uint32(maxHops),
 		ViaMqtt:  false,
 		WantAck:  info.WantAck,
