@@ -201,6 +201,7 @@ func (c *MeshtasticClient) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 	//c.sendMeshPresense(&evt.Envelope)
 
 	if evt.Envelope.To != mesh.NodeId(mesh.BROADCAST_ID) {
+		log.Debug().Msg("Sending node info")
 		c.sendNodeInfo(evt.Envelope.To, evt.Envelope.From, false)
 	}
 
@@ -232,6 +233,7 @@ func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode mesh.NodeId, wantReply 
 
 	ctx := log.WithContext(context.Background())
 	if fromNode == mesh.NodeId(c.main.Config.BaseNodeId) {
+		log.Debug().Msg("Sending from base node")
 		err := c.MeshClient.SendNodeInfo(uint32(fromNode), uint32(toNode), c.main.Config.LongName, c.main.Config.LongName, wantReply)
 		if err != nil {
 			log.Err(err).Msg("Failed to send node info")
@@ -245,8 +247,10 @@ func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode mesh.NodeId, wantReply 
 		log.Err(err).Msg("Failed to get ghost")
 	} else {
 		if meta, ok := ghost.Metadata.(*GhostMetadata); ok && meta.LongName != "" && meta.ShortName != "" {
+			log.Debug().Msg("Sending user configured node info")
 			err = c.MeshClient.SendNodeInfo(uint32(fromNode), uint32(toNode), meta.LongName, meta.ShortName, wantReply)
 		} else {
+			log.Debug().Msg("Sending generated node info")
 			senderStr := fromNode.String()
 			shortName := senderStr[len(senderStr)-4:]
 			err = c.MeshClient.SendNodeInfo(uint32(fromNode), uint32(toNode), senderStr, shortName, wantReply)
@@ -259,6 +263,7 @@ func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode mesh.NodeId, wantReply 
 	}
 	if notifyUser {
 		// TODO: Send a notice in the portal informing the user how to set their mesh names
+		log.Debug().Msg("Notifying user...")
 	}
 }
 
