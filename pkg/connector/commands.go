@@ -135,7 +135,7 @@ func fnNodeInfo(ce *commands.Event) {
 			senderStr := nodeID.String()
 			shortName = senderStr[len(senderStr)-4:]
 		}
-		ce.Reply("Below is your node info on Meshtastic<br><b>Node ID:</b> %s<br><b>Long Name:</b> %s<br><b>Short Name:</b> %s", nodeID, longName, shortName)
+		ce.Reply("Below is your node info on Meshtastic\n**Node ID:** %s\n**Long Name:** %s\n**Short Name:** %s", nodeID, longName, shortName)
 	}
 
 }
