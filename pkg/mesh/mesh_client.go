@@ -494,6 +494,7 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 			Envelope:  meshEventEnv,
 			LongName:  user.LongName,
 			ShortName: user.ShortName,
+			PublicKey: user.PublicKey,
 		}
 
 	case pb.PortNum_POSITION_APP:

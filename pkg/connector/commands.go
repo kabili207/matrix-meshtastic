@@ -34,10 +34,21 @@ var cmdUpdateNames = &commands.FullHandler{
 	RequiresPortal: false,
 }
 
+var cmdNodeInfo = &commands.FullHandler{
+	Func: fnNodeInfo,
+	Name: "info",
+	Help: commands.HelpMeta{
+		Section:     HelpSectionNode,
+		Description: "Displays info about your Meshtastic node",
+	},
+	RequiresLogin:  false,
+	RequiresPortal: false,
+}
+
 func fnJoinChannel(ce *commands.Event) {
 
 	if len(ce.Args) != 2 {
-		ce.Reply("**Usage:** `join-channel <channel name> <channel key>`")
+		ce.Reply("**Usage:** `$cmdprefix <channel name> <channel key>`")
 		return
 	}
 
@@ -61,7 +72,7 @@ func fnJoinChannel(ce *commands.Event) {
 func fnUpdateNames(ce *commands.Event) {
 
 	if len(ce.Args) < 2 {
-		ce.Reply("**Usage:** `update-names <short name> <long name>`")
+		ce.Reply("**Usage:** `$cmdprefix <short name> <long name>`")
 		return
 	}
 
@@ -91,4 +102,40 @@ func fnUpdateNames(ce *commands.Event) {
 	} else {
 		ce.Reply("Successfully updated Meshtastic names")
 	}
+}
+
+func fnNodeInfo(ce *commands.Event) {
+
+	//if len(ce.Args) < 2 {
+	//	ce.Reply("**Usage:** `$cmdprefix <short name> <long name>`")
+	//	return
+	//}
+
+	userMXID := ce.User.MXID
+	nodeID := ce.Bridge.Network.(*MeshtasticConnector).MXIDToNodeId(userMXID)
+
+	if ghost, err := ce.Bridge.GetGhostByID(ce.Ctx, meshid.MakeUserID(nodeID)); err != nil {
+		ce.Log.Err(err).Msg("Get Matrix user node info")
+		ce.Reply("Failed to join channel: %v", err)
+
+	} else if mxUser, err := ce.Bridge.Matrix.GetMemberInfo(ce.Ctx, ce.RoomID, userMXID); err != nil {
+		ce.Log.Err(err).Msg("Get Matrix user node info")
+		ce.Reply("Failed to join channel: %v", err)
+	} else {
+		meta, ok := ghost.Metadata.(*GhostMetadata)
+		if !ok {
+			meta = &GhostMetadata{}
+		}
+		longName := meta.LongName
+		shortName := meta.ShortName
+		if longName == "" {
+			longName = TruncateString(mxUser.Displayname, 39)
+		}
+		if shortName == "" {
+			senderStr := nodeID.String()
+			shortName = senderStr[len(senderStr)-4:]
+		}
+		ce.Reply("Below is your node info on Meshtastic<br><b>Node ID:</b> %s<br><b>Long Name:</b> %s<br><b>Short Name:</b> %s", nodeID, longName, shortName)
+	}
+
 }

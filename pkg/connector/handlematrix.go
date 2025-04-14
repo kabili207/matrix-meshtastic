@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"time"
 
@@ -172,16 +173,38 @@ func (c *MeshtasticClient) updateGhostSenderID(mxid id.UserID) func(context.Cont
 
 func (c *MeshtasticClient) updateGhostNames(longName, shortName string) func(context.Context, *bridgev2.Ghost) bool {
 	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
-		meta := &GhostMetadata{}
-		switch ghost.Metadata.(type) {
-		case *GhostMetadata:
-			meta = ghost.Metadata.(*GhostMetadata)
-		default:
-			ghost.Metadata = meta
+		meta, ok := ghost.Metadata.(*GhostMetadata)
+		if !ok {
+			meta = &GhostMetadata{}
 		}
 		forceSave := meta.LongName != longName || meta.ShortName != shortName
 		meta.LongName = longName
 		meta.ShortName = shortName
+		return forceSave
+	}
+}
+
+func (c *MeshtasticClient) updateGhostPublicKey(publicKey []byte) func(context.Context, *bridgev2.Ghost) bool {
+	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
+		meta, ok := ghost.Metadata.(*GhostMetadata)
+		if !ok {
+			meta = &GhostMetadata{}
+		}
+		forceSave := slices.Equal(meta.PublicKey, publicKey)
+		meta.PublicKey = publicKey
+		return forceSave
+	}
+}
+
+func (c *MeshtasticClient) updateGhostPrivateKey(publicKey, privateKey []byte) func(context.Context, *bridgev2.Ghost) bool {
+	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
+		meta, ok := ghost.Metadata.(*GhostMetadata)
+		if !ok {
+			meta = &GhostMetadata{}
+		}
+		forceSave := slices.Equal(meta.PrivateKey, privateKey) && slices.Equal(meta.PublicKey, publicKey)
+		meta.PrivateKey = privateKey
+		meta.PublicKey = publicKey
 		return forceSave
 	}
 }

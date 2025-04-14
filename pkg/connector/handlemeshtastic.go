@@ -208,11 +208,12 @@ func (c *MeshtasticClient) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 	if evt.LongName == "" {
 		return
 	}
+
 	userInfo := &bridgev2.UserInfo{
 		Name:         &evt.LongName,
 		IsBot:        ptr.Ptr(false),
 		Identifiers:  []string{},
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostNames(evt.LongName, evt.ShortName)),
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostNames(evt.LongName, evt.ShortName), c.updateGhostPublicKey(evt.PublicKey)),
 	}
 	ghost.UpdateInfo(ctx, userInfo)
 	log.Debug().Msg("Synced ghost info")

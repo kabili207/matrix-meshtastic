@@ -43,8 +43,7 @@ func (c *MeshtasticConnector) Init(bridge *bridgev2.Bridge) {
 		c.managedNodeCache = map[meshid.NodeID]bool{}
 	}
 
-	c.bridge.Commands.(*commands.Processor).AddHandlers(cmdJoinChannel)
-	c.bridge.Commands.(*commands.Processor).AddHandlers(cmdUpdateNames)
+	c.bridge.Commands.(*commands.Processor).AddHandlers(cmdJoinChannel, cmdUpdateNames, cmdNodeInfo)
 
 	c.log.Info().Msg("MeshtasticConnector Init called")
 }
@@ -143,9 +142,11 @@ type PortalMetadata struct {
 	ChannelKey  *string `json:"channel_key"`
 }
 type GhostMetadata struct {
-	LongName  string `json:"long_name"`
-	ShortName string `json:"short_name"`
-	UserMXID  string `json:"user_mxid"`
+	LongName   string `json:"long_name"`
+	ShortName  string `json:"short_name"`
+	UserMXID   string `json:"user_mxid,omitempty"`
+	PublicKey  []byte `json:"public_key,omitempty"`
+	PrivateKey []byte `json:"private_key,omitempty"`
 }
 
 func (tc *MeshtasticConnector) GetDBMetaTypes() database.MetaTypes {

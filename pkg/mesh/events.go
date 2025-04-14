@@ -37,6 +37,7 @@ type MeshNodeInfoEvent struct {
 	Envelope  MeshEnvelope
 	ShortName string
 	LongName  string
+	PublicKey []byte
 }
 
 type MeshChannelJoined struct {
