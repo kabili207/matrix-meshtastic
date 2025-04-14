@@ -256,21 +256,57 @@ func (c *MeshtasticClient) SendTelemetry(from, to meshid.NodeID) error {
 }
 
 // TODO: Create a user info struct to hold from, long, and short names
-func (c *MeshtasticClient) SendPosition(from, to meshid.NodeID, latitude, longitude float32, timestamp *time.Time) (packetID uint32, err error) {
+func (c *MeshtasticClient) SendPosition(from, to meshid.NodeID, latitude, longitude float32, accuracy *float32, timestamp *time.Time) (packetID uint32, err error) {
 
 	now := time.Now()
 	now = now.UTC()
 
 	latI := int32(latitude * 1e7)
 	lonI := int32(longitude * 1e7)
+
 	nodeInfo := pb.Position{
-		Time:       uint32(now.Unix()),
-		Timestamp:  uint32(timestamp.Unix()),
-		LatitudeI:  &latI,
-		LongitudeI: &lonI,
+		Time:          uint32(now.Unix()),
+		Timestamp:     uint32(timestamp.Unix()),
+		LatitudeI:     &latI,
+		LongitudeI:    &lonI,
+		PrecisionBits: c.GetPrecisionBits(accuracy),
 	}
 
 	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{PortNum: pb.PortNum_POSITION_APP, Encrypted: true, From: from, To: to})
+}
+
+func (c *MeshtasticClient) GetPrecisionBits(meters *float32) uint32 {
+	if meters == nil {
+		return 0
+	}
+	var val uint32 = 0
+
+	switch m := *meters; {
+	case m >= 23300:
+		val = 10
+	case m >= 11700:
+		val = 11
+	case m >= 5800:
+		val = 12
+	case m >= 2900:
+		val = 13
+	case m >= 1500:
+		val = 14
+	case m >= 729:
+		val = 15
+	case m >= 364:
+		val = 16
+	case m >= 182:
+		val = 17
+	case m >= 91:
+		val = 18
+	case m >= 45:
+		val = 19
+	default:
+		val = 20
+	}
+
+	return val
 }
 
 func (c *MeshtasticClient) SendMessage(from, to meshid.NodeID, channel string, message string) (uint32, error) {

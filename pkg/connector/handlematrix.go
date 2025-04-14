@@ -67,8 +67,9 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 		if len(matches) > 0 {
 			lat, _ := strconv.ParseFloat(matches[1], 32)
 			lon, _ := strconv.ParseFloat(matches[2], 32)
+			acc, _ := strconv.ParseFloat(matches[3], 32)
 			ts := time.UnixMilli(msg.Event.Timestamp)
-			packetId, err = c.MeshClient.SendPosition(fromNode, mesh.BROADCAST_ID, float32(lat), float32(lon), &ts)
+			packetId, err = c.MeshClient.SendPosition(fromNode, mesh.BROADCAST_ID, float32(lat), float32(lon), ptr.Ptr(float32(acc)), &ts)
 		}
 	default:
 		return nil, bridgev2.ErrUnsupportedMessageType
