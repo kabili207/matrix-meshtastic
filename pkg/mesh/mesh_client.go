@@ -326,6 +326,40 @@ func (c *MeshtasticClient) SendReaction(from, to meshid.NodeID, channel string, 
 	})
 }
 
+func (c *MeshtasticClient) SendAck(from, to meshid.NodeID, packetId uint32) (uint32, error) {
+
+	nodeInfo := pb.Routing{
+		Variant: &pb.Routing_ErrorReason{
+			ErrorReason: pb.Routing_NONE,
+		},
+	}
+
+	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
+		PortNum:   pb.PortNum_ROUTING_APP,
+		Encrypted: true,
+		From:      c.nodeId,
+		To:        to,
+		ReplyId:   packetId,
+	})
+}
+
+func (c *MeshtasticClient) SendNack(to meshid.NodeID, packetId uint32) (uint32, error) {
+
+	nodeInfo := pb.Routing{
+		Variant: &pb.Routing_ErrorReason{
+			ErrorReason: pb.Routing_GOT_NAK,
+		},
+	}
+
+	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
+		PortNum:   pb.PortNum_ROUTING_APP,
+		Encrypted: true,
+		From:      c.nodeId,
+		To:        to,
+		ReplyId:   packetId,
+	})
+}
+
 func (c *MeshtasticClient) sendProtoMessage(channel string, message proto.Message, info PacketInfo) (packetID uint32, err error) {
 	rawInfo, err := proto.Marshal(message)
 	if err != nil {
@@ -391,6 +425,14 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 	if info.From == c.nodeId {
 		maxHops = 2
 	}
+	priority := pb.MeshPacket_DEFAULT
+	if info.WantAck {
+		priority = pb.MeshPacket_RELIABLE
+	} else if info.PortNum == pb.PortNum_ROUTING_APP {
+		priority = pb.MeshPacket_ACK
+	} else if info.ReplyId != 0 {
+		priority = pb.MeshPacket_RESPONSE
+	}
 
 	pkt := pb.MeshPacket{
 		Id:       packetId,
@@ -404,7 +446,7 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		RxSnr:    0,
 		RxRssi:   0,
 		Channel:  channelHash,
-		Priority: pb.MeshPacket_RELIABLE,
+		Priority: priority,
 		Delayed:  pb.MeshPacket_NO_DELAY,
 	}
 
