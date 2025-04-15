@@ -28,6 +28,8 @@ func (c *MeshtasticClient) handleMeshEvent(rawEvt any) {
 		c.handleMeshReaction(evt)
 	case *mesh.MeshLocationEvent:
 		c.handleMeshLocation(evt)
+	case *mesh.MeshWaypointEvent:
+		c.handleMeshWaypoint(evt)
 		//case *mesh.MeshEnvelope:
 		//	c.sendMeshPresense(evt)
 	}
@@ -303,4 +305,22 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 	}
 
 	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)
+}
+
+func (c *MeshtasticClient) handleMeshWaypoint(evt *mesh.MeshWaypointEvent) {
+	log := c.UserLogin.Log.With().
+		Str("action", "waypoint_update").
+		Stringer("node_id", evt.Envelope.From).
+		Logger()
+	log.Info().
+		Float32("latitude", evt.Latitude).
+		Float32("longitude", evt.Latitude).
+		Str("name", evt.Name).
+		Str("description", evt.Description).
+		Str("icon", evt.Icon).
+		Msg("Waypoint received")
+	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+
+	// TODO: Save these somewhere and allow other users to retrieve them later?
+	// Possibly drop an m.location event in the default channel?
 }

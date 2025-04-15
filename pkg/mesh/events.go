@@ -33,6 +33,15 @@ type MeshLocationEvent struct {
 	GroundTrack *uint32
 }
 
+type MeshWaypointEvent struct {
+	Envelope    MeshEnvelope
+	Name        string
+	Description string
+	Latitude    float32
+	Longitude   float32
+	Icon        string
+}
+
 type MeshNodeInfoEvent struct {
 	Envelope  MeshEnvelope
 	ShortName string

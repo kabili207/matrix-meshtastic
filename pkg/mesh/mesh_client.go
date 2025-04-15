@@ -578,6 +578,21 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 		var r = pb.Routing{}
 		err = proto.Unmarshal(message.Payload, &r)
 
+	case pb.PortNum_WAYPOINT_APP:
+		var w = pb.Waypoint{}
+		err = proto.Unmarshal(message.Payload, &w)
+		if w.LatitudeI != nil && w.LongitudeI != nil {
+			lat := float32(*w.LatitudeI) * 1e-7
+			lon := float32(*w.LongitudeI) * 1e-7
+			evt = &MeshWaypointEvent{
+				Envelope:    meshEventEnv,
+				Latitude:    lat,
+				Longitude:   lon,
+				Name:        w.Name,
+				Description: w.Description,
+				Icon:        string(rune(w.Icon)),
+			}
+		}
 	}
 
 	c.notifyEvent(evt)
