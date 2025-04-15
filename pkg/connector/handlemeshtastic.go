@@ -280,7 +280,7 @@ func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode meshid.NodeID, wantRepl
 func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 	if evt.IsDM {
 		// We don't handle DMs yet
-		c.MeshClient.SendNack(evt.Envelope.From, evt.Envelope.PacketId)
+		c.MeshClient.SendNack(evt.Envelope.To, evt.Envelope.From, evt.Envelope.PacketId)
 		return
 	}
 

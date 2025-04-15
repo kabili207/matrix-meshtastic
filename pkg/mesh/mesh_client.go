@@ -337,14 +337,14 @@ func (c *MeshtasticClient) SendAck(from, to meshid.NodeID, packetId uint32) (uin
 	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
 		PortNum:   pb.PortNum_ROUTING_APP,
 		Encrypted: true,
-		From:      c.nodeId,
+		From:      from,
 		To:        to,
-		ReplyId:   packetId,
+		RequestId: packetId,
 	})
 }
 
-func (c *MeshtasticClient) SendNack(to meshid.NodeID, packetId uint32) (uint32, error) {
-
+func (c *MeshtasticClient) SendNack(from, to meshid.NodeID, packetId uint32) (uint32, error) {
+	// Not all user interfaces show this as an error (notably MUI), but it's better than nothing
 	nodeInfo := pb.Routing{
 		Variant: &pb.Routing_ErrorReason{
 			ErrorReason: pb.Routing_GOT_NAK,
@@ -356,7 +356,7 @@ func (c *MeshtasticClient) SendNack(to meshid.NodeID, packetId uint32) (uint32, 
 		Encrypted: true,
 		From:      c.nodeId,
 		To:        to,
-		ReplyId:   packetId,
+		RequestId: packetId,
 	})
 }
 
@@ -569,6 +569,7 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 	case pb.PortNum_NEIGHBORINFO_APP:
 		var n = pb.NeighborInfo{}
 		err = proto.Unmarshal(message.Payload, &n)
+		c.printPacketDetails(envelope, &n)
 
 	case pb.PortNum_STORE_FORWARD_APP:
 		var s = pb.StoreAndForward{}
@@ -577,6 +578,7 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 	case pb.PortNum_ROUTING_APP:
 		var r = pb.Routing{}
 		err = proto.Unmarshal(message.Payload, &r)
+		c.printPacketDetails(envelope, &r)
 
 	case pb.PortNum_WAYPOINT_APP:
 		var w = pb.Waypoint{}
