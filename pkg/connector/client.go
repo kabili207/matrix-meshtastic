@@ -10,9 +10,6 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/status"
-	"maunium.net/go/mautrix/event"
-
-	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
 )
 
 type MeshtasticClient struct {
@@ -55,39 +52,6 @@ func (nc *MeshtasticClient) LogoutRemote(ctx context.Context) {
 	nc.log.Info().Msg("MeshtasticClient LogoutRemote called (no-op)")
 }
 
-func (tc *MeshtasticClient) GetCapabilities(ctx context.Context, portal *bridgev2.Portal) *event.RoomFeatures {
-
-	return &event.RoomFeatures{
-		MaxTextLength:        int(pb.Constants_DATA_PAYLOAD_LEN),
-		Edit:                 event.CapLevelRejected,
-		Reaction:             event.CapLevelPartialSupport,
-		CustomEmojiReactions: false,
-		Poll:                 event.CapLevelUnsupported,
-		Reply:                event.CapLevelPartialSupport,
-		Thread:               event.CapLevelUnsupported,
-		LocationMessage:      event.CapLevelPartialSupport,
-		Formatting: event.FormattingFeatureMap{
-			event.FmtBold:               event.CapLevelUnsupported,
-			event.FmtItalic:             event.CapLevelUnsupported,
-			event.FmtStrikethrough:      event.CapLevelUnsupported,
-			event.FmtInlineCode:         event.CapLevelUnsupported,
-			event.FmtCodeBlock:          event.CapLevelUnsupported,
-			event.FmtSyntaxHighlighting: event.CapLevelUnsupported,
-			event.FmtBlockquote:         event.CapLevelUnsupported,
-			event.FmtInlineLink:         event.CapLevelUnsupported,
-			event.FmtUserLink:           event.CapLevelUnsupported,
-			event.FmtRoomLink:           event.CapLevelUnsupported,
-			event.FmtEventLink:          event.CapLevelUnsupported,
-			event.FmtAtRoomMention:      event.CapLevelUnsupported,
-			event.FmtUnorderedList:      event.CapLevelUnsupported,
-			event.FmtOrderedList:        event.CapLevelUnsupported,
-			event.FmtListStart:          event.CapLevelUnsupported,
-			event.FmtListJumpValue:      event.CapLevelUnsupported,
-			event.FmtCustomEmoji:        event.CapLevelUnsupported,
-		},
-	}
-}
-
 func (s *MeshtasticClient) makePortalKey(channelID string, channelKey *string) networkid.PortalKey {
 	key := networkid.PortalKey{
 		ID: meshid.MakePortalID(channelID, channelKey),
@@ -102,7 +66,7 @@ func (s *MeshtasticClient) makePortalKey(channelID string, channelKey *string) n
 func (s *MeshtasticClient) makeEventSender(sender meshid.NodeID) bridgev2.EventSender {
 	meta := s.UserLogin.Metadata.(*UserLoginMetadata)
 	return bridgev2.EventSender{
-		IsFromMe:    meta.ServerNodeId == sender,
+		IsFromMe:    meta.NodeID == sender,
 		SenderLogin: s.UserLogin.ID,
 		Sender:      meshid.MakeUserID(sender),
 	}
@@ -110,35 +74,11 @@ func (s *MeshtasticClient) makeEventSender(sender meshid.NodeID) bridgev2.EventS
 
 func (tc *MeshtasticClient) IsThisUser(ctx context.Context, userID networkid.UserID) bool {
 	meta := tc.UserLogin.Metadata.(*UserLoginMetadata)
-	return meshid.MakeUserID(meta.ServerNodeId) == userID
+	return meshid.MakeUserID(meta.NodeID) == userID
 }
 
 func (tc *MeshtasticClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
-
-	return &bridgev2.ChatInfo{
-		Members: &bridgev2.ChatMemberList{
-			IsFull: true,
-			Members: []bridgev2.ChatMember{
-				{
-					EventSender: bridgev2.EventSender{
-						IsFromMe: true,
-						Sender:   meshid.MakeUserID(tc.UserLogin.Metadata.(*UserLoginMetadata).ServerNodeId),
-					},
-					// This could be omitted, but leave it in to be explicit.
-					Membership: event.MembershipJoin,
-					// Make the user moderator, so they can adjust the room metadata if they want to.
-					PowerLevel: ptr.Ptr(50),
-				},
-				{
-					EventSender: bridgev2.EventSender{
-						Sender: networkid.UserID(portal.ID),
-					},
-					Membership: event.MembershipJoin,
-					PowerLevel: ptr.Ptr(50),
-				},
-			},
-		},
-	}, nil
+	return nil, nil
 }
 
 func (c *MeshtasticClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {

@@ -33,8 +33,8 @@ func MakeUserID(nodeID NodeID) networkid.UserID {
 	return networkid.UserID(fmt.Sprintf("%08x", uint32(nodeID)))
 }
 
-func MakeUserLoginID(rootTopic string) networkid.UserLoginID {
-	return networkid.UserLoginID(rootTopic)
+func MakeUserLoginID(nodeID NodeID) networkid.UserLoginID {
+	return networkid.UserLoginID(fmt.Sprintf("%08x", uint32(nodeID)))
 }
 
 func MakePortalID(channelId string, channelKey *string) networkid.PortalID {

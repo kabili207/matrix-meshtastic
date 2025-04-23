@@ -248,10 +248,10 @@ func (c *MeshtasticClient) SendPresenseToMesh(ctx context.Context, sender id.Use
 
 func (mc *MeshtasticClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.MatrixMembershipChange) (bool, error) {
 	log := mc.log.With().
-		Str("action", "handle_typing").
+		Str("action", "handle_membership_change").
 		Str("portal", string(msg.Portal.ID)).
 		Logger()
-	log.Debug().Msg("Handling typing change")
+	log.Debug().Msg("Handling membership change")
 
 	if msg.Type != bridgev2.Join {
 		return false, nil

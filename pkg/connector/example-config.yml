@@ -19,3 +19,4 @@ mqtt:
   server: tcp://example.com:1883
   username: example
   password: example
+  root_topic: msh/US

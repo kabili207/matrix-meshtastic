@@ -133,8 +133,7 @@ func (c *MeshtasticConnector) Stop(ctx context.Context) error {
 }
 
 type UserLoginMetadata struct {
-	ServerNodeId meshid.NodeID `json:"node_id"`
-	RootTopic    string        `json:"root_topic"`
+	NodeID meshid.NodeID `json:"node_id"`
 }
 
 type PortalMetadata struct {
@@ -191,8 +190,8 @@ func (c *MeshtasticConnector) CreateLogin(ctx context.Context, user *bridgev2.Us
 
 // --- End Login Flow Implementation ---
 
-func (c *MeshtasticConnector) MakeMqttClient(rootTopic string) *mqtt.Client {
-	mc := mqtt.NewClient(c.Config.Mqtt.Uri, c.Config.Mqtt.Username, c.Config.Mqtt.Password, rootTopic)
+func (c *MeshtasticConnector) MakeMqttClient() *mqtt.Client {
+	mc := mqtt.NewClient(c.Config.Mqtt.Uri, c.Config.Mqtt.Username, c.Config.Mqtt.Password, c.Config.Mqtt.RootTopic)
 	// Init with Info level rather than the default of Debug, as the MQTT client is VERY noisy
 	slogger := slog.New(slogzerolog.Option{Level: slog.LevelInfo, Logger: &c.log}.NewZerologHandler())
 	mc.SetLogger(slogger)
@@ -200,13 +199,15 @@ func (c *MeshtasticConnector) MakeMqttClient(rootTopic string) *mqtt.Client {
 }
 
 func (c *MeshtasticConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
-	meta := login.Metadata.(*UserLoginMetadata)
 
-	mqttClient := c.MakeMqttClient(meta.RootTopic)
+	mqttClient := c.MakeMqttClient()
 
-	meshClient := mesh.NewMeshtasticClient(c.GetBaseNodeID(), mqttClient, c.log.With().Str("topic", meta.RootTopic).Logger())
+	meshClient := mesh.NewMeshtasticClient(c.GetBaseNodeID(), mqttClient, c.log.With().Logger())
 	meshClient.SetIsManagedNodeHandler(c.IsManagedNode)
 	meshClient.SetOnConnectHandler(c.onMqttConnected)
+	if !meshClient.IsConnected() {
+		meshClient.Connect()
+	}
 
 	login.Client = &MeshtasticClient{
 		UserLogin:  login,

@@ -81,29 +81,13 @@ func (c *MeshtasticClient) handleMeshChannelJoined(evt *mesh.MeshChannelJoined) 
 		return
 	}
 
-	meta := login.Metadata.(*UserLoginMetadata)
+	//meta := login.Metadata.(*UserLoginMetadata)
 
 	log.Info().Str("portal_id", string(portal.ID)).Msg("Successfully retrieved portal")
 
+	chatInfo := c.wrapChatInfo(user, evt.ChannelID, *evt.ChannelKey)
 	// Create the room using portal
-	err = portal.CreateMatrixRoom(ctx, user.GetDefaultLogin(), &bridgev2.ChatInfo{
-		Name:  ptr.Ptr(evt.ChannelID),
-		Topic: ptr.Ptr(fmt.Sprintf("ID: %s\nKey: %s", evt.ChannelID, *evt.ChannelKey)),
-		Members: &bridgev2.ChatMemberList{Members: []bridgev2.ChatMember{
-			{
-				EventSender: bridgev2.EventSender{
-					Sender:      meshid.MakeUserID(meta.ServerNodeId),
-					SenderLogin: networkid.UserLoginID(user.GetDefaultLogin().ID),
-				},
-				Membership: event.MembershipJoin,
-				Nickname:   ptr.Ptr(login.RemoteName),
-				PowerLevel: ptr.Ptr(100),
-				UserInfo: &bridgev2.UserInfo{
-					Name: ptr.Ptr(login.RemoteName),
-				},
-			},
-		}},
-	})
+	err = portal.CreateMatrixRoom(ctx, user.GetDefaultLogin(), chatInfo)
 	if err != nil {
 		log.Err(err).Msg("Failed to create matrix room")
 		return

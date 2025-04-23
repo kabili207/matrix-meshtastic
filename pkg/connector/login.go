@@ -3,8 +3,8 @@ package connector
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
-	"strings"
 
 	// Added time for createWelcomeRoomAndSendIntro call
 
@@ -29,6 +29,8 @@ const (
 	LoginInputFieldTypeMqttTopic bridgev2.LoginInputFieldType = "mqtt-topic"
 
 	LoginFieldRootTopic = "root-topic"
+	LoginFieldLongName  = "long-name"
+	LoginFieldShortName = "short-name"
 )
 
 // SimpleLogin represents an ongoing username/password login attempt.
@@ -47,14 +49,30 @@ func (sl *MeshtasticLogin) Start(ctx context.Context) (*bridgev2.LoginStep, erro
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeUserInput,
 		StepID:       LoginStepIDUsernamePassword,
-		Instructions: "Enter the root mqtt topic to connect to.",
+		Instructions: "Enter the long and short names to use on Meshtastic",
 		UserInputParams: &bridgev2.LoginUserInputParams{
 			Fields: []bridgev2.LoginInputDataField{
 				{
-					Type: LoginInputFieldTypeMqttTopic, // Correct type based on login.go
-					ID:   LoginFieldRootTopic,
-					Name: "Root topic",
-					// TODO: Add Validator function
+					Type: bridgev2.LoginInputFieldTypeUsername,
+					ID:   LoginFieldLongName,
+					Name: "Long name",
+					Validate: func(s string) (string, error) {
+						if len([]byte(s)) > 39 {
+							return s, errors.New("must be less than 40 bytes long")
+						}
+						return s, nil
+					},
+				},
+				{
+					Type: bridgev2.LoginInputFieldTypeUsername,
+					ID:   LoginFieldShortName,
+					Name: "Short name",
+					Validate: func(s string) (string, error) {
+						if len([]byte(s)) > 4 {
+							return s, errors.New("must be less than 5 bytes long")
+						}
+						return s, nil
+					},
 				},
 			},
 		},
@@ -69,22 +87,14 @@ func nodeIdToMacAddr(nodeId uint32) []byte {
 
 // SubmitUserInput implements bridgev2.LoginProcessUserInput
 func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string]string) (*bridgev2.LoginStep, error) {
-	root_topic := input[LoginFieldRootTopic]
+	long_name := input[LoginFieldLongName]
+	short_name := input[LoginFieldShortName]
 
-	if root_topic == "" {
-		return nil, fmt.Errorf("root topic cannot be empty")
+	if long_name == "" || short_name == "" {
+		return nil, fmt.Errorf("long and short names are required")
 	}
 
-	sl.Log.Info().Str("topic", root_topic).Msg("Received login request for topic")
-
-	// In a real bridge, you would authenticate with the remote network here.
-	// Since this is simple, we just generate a unique ID based on the username.
-	// We need a stable way to generate the LoginID for a given remote identifier (username).
-	// Using a UUID based on a namespace and the username ensures this.
-	// IMPORTANT: Do NOT just use the raw username, as it might contain invalid characters for a Matrix Localpart.
-	// Also, avoid collisions if usernames are not unique across different contexts (not an issue here).
-
-	mqttClient := sl.Main.MakeMqttClient(root_topic)
+	mqttClient := sl.Main.MakeMqttClient()
 	err := mqttClient.Connect()
 
 	if err != nil {
@@ -92,29 +102,21 @@ func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string
 		return nil, fmt.Errorf("failed to log in to MQTT server: %w", err)
 	}
 
-	userNodeId := sl.Main.GetBaseNodeID()
+	userNodeId := sl.Main.MXIDToNodeId(sl.User.MXID)
 
 	// Correct type is networkid.UserLoginID
-	var loginID networkid.UserLoginID = meshid.MakeUserLoginID(root_topic)
-
-	topicParts := strings.Split(root_topic, "/")
-	topicFriendly := root_topic
-
-	if len(topicParts) > 1 && topicParts[0] == "msh" {
-		topicFriendly = strings.Join(topicParts[1:], " - ")
-	}
+	var loginID networkid.UserLoginID = meshid.MakeUserLoginID(userNodeId)
 
 	// Create the UserLogin entry in the bridge database
 	ul, err := sl.User.NewLogin(ctx, &database.UserLogin{
 		ID:         loginID,
-		RemoteName: topicFriendly, // Use the provided username as the display name
+		RemoteName: short_name,
 		RemoteProfile: status.RemoteProfile{
-			Name: root_topic,
-			// Add other profile fields if known (e.g., avatar URL)
+			Name:     long_name,
+			Username: userNodeId.String(),
 		},
 		Metadata: &UserLoginMetadata{
-			ServerNodeId: userNodeId,
-			RootTopic:    root_topic,
+			NodeID: userNodeId,
 		},
 	}, &bridgev2.NewLoginParams{
 		DeleteOnConflict: false, // Or true if you want relogins to replace old ones
@@ -132,9 +134,6 @@ func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string
 	if err != nil {
 		// Log the error, but maybe still return success to the user? Depends on desired UX.
 		sl.Log.Err(err).Msg("Failed to load user login after creation (this might indicate an issue)")
-		// Optionally delete the login record if loading failed critically:
-		// sl.User.DeleteLogin(ctx, ul.ID)
-		// return nil, fmt.Errorf("failed to activate user login: %w", err)
 	}
 
 	// Run welcome logic *after* the login is fully established and loaded
@@ -144,7 +143,7 @@ func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeComplete,
 		StepID:       LoginStepIDComplete,
-		Instructions: fmt.Sprintf("Successfully connected to '%s'", topicFriendly),
+		Instructions: fmt.Sprintf("Successfully logged in as %s", userNodeId),
 		CompleteParams: &bridgev2.LoginCompleteParams{
 			UserLoginID: ul.ID,
 			UserLogin:   ul, // Pass the loaded UserLogin back

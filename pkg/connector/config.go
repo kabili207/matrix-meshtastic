@@ -18,9 +18,10 @@ type Config struct {
 }
 
 type MqttConfig struct {
-	Uri      string `yaml:"server"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
+	Uri       string `yaml:"server"`
+	Username  string `yaml:"username"`
+	Password  string `yaml:"password"`
+	RootTopic string `yaml:"root_topic"`
 }
 
 type ChannelConfig struct {
@@ -36,6 +37,7 @@ func upgradeConfig(helper configupgrade.Helper) {
 	helper.Copy(configupgrade.Str, "mqtt", "server")
 	helper.Copy(configupgrade.Str, "mqtt", "username")
 	helper.Copy(configupgrade.Str, "mqtt", "password")
+	helper.Copy(configupgrade.Str, "mqtt", "root_topic")
 }
 
 func (mc *MeshtasticConnector) GetConfig() (example string, data any, upgrader configupgrade.Upgrader) {
