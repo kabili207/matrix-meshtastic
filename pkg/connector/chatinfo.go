@@ -8,7 +8,6 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
-	"maunium.net/go/mautrix/event"
 )
 
 func (mc *MeshtasticClient) wrapDMInfo(synthNode, remoteNode meshid.NodeID) *bridgev2.ChatInfo {
@@ -34,17 +33,15 @@ func (mc *MeshtasticClient) wrapChatInfo(user *bridgev2.User, channelID, channel
 	info := &bridgev2.ChatInfo{
 		Name:  ptr.Ptr(channelID),
 		Topic: ptr.Ptr(fmt.Sprintf("ID: %s\nKey: %s", channelID, channelKey)),
+		Type:  ptr.Ptr(database.RoomTypeDefault),
 		Members: &bridgev2.ChatMemberList{
 			IsFull: false,
 			MemberMap: map[networkid.UserID]bridgev2.ChatMember{
 				meshid.MakeUserID(nodeID): {
 					EventSender: bridgev2.EventSender{
-						IsFromMe:    true,
 						Sender:      meshid.MakeUserID(nodeID),
-						SenderLogin: networkid.UserLoginID(user.GetDefaultLogin().ID),
+						SenderLogin: meshid.MakeUserLoginID(nodeID),
 					},
-					Membership: event.MembershipJoin,
-					Nickname:   ptr.Ptr(nodeID.String()),
 				},
 			},
 		},

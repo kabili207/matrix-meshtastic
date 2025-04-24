@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	separatorMessageID = "|"
-	separatorPortalID  = "|||"
+	separatorMessageID  = "|"
+	separatorPortalID   = "|||"
+	separatorDMPortalID = "^"
 )
 
 type NodeID uint32
@@ -45,21 +46,28 @@ func MakePortalID(channelId string, channelKey *string) networkid.PortalID {
 	return networkid.PortalID(fmt.Sprintf("%s%s%s", channelId, separatorPortalID, *channelKey))
 }
 
+func MakeDMPortalID(remote, synth NodeID) networkid.PortalID {
+	return networkid.PortalID(fmt.Sprintf("%s%s%s", remote, separatorDMPortalID, synth))
+}
+
+func MakeMessageID(senderOrChannel string, packetId uint32) networkid.MessageID {
+	return networkid.MessageID(fmt.Sprintf("%d|%s", packetId, senderOrChannel))
+}
+
 func ParseUserID(userID networkid.UserID) (nodeID NodeID, err error) {
 	packet64, err := strconv.ParseUint(string(userID), 16, 32)
 	nodeID = NodeID(uint32(packet64))
 	return
 }
 
-func ParseMessageID(messageID networkid.MessageID) (channelID string, packetID uint32, err error) {
-	parts := strings.Split(string(messageID), separatorMessageID)
-	if len(parts) != 2 {
+func ParseMessageID(messageID networkid.MessageID) (senderOrChannelID string, packetID uint32, err error) {
+	packetRaw, senderOrChannelID, ok := strings.Cut(string(messageID), separatorMessageID)
+	if !ok {
 		err = fmt.Errorf("invalid message ID: expected two pipe-separated parts")
 		return
-
 	}
-	channelID = parts[0]
-	packet64, err := strconv.ParseUint(parts[1], 10, 32)
+
+	packet64, err := strconv.ParseUint(packetRaw, 10, 32)
 	packetID = uint32(packet64)
 	return
 }
@@ -70,4 +78,17 @@ func ParsePortalID(portalID networkid.PortalID) (channelID string, channelKey st
 		return "", "", fmt.Errorf("invalid portal ID: expected two pipe-separated parts")
 	}
 	return parts[0], parts[1], nil
+}
+
+func ParseDMPortalID(portalID networkid.PortalID) (remote, synth NodeID, err error) {
+	parts := strings.Split(string(portalID), separatorDMPortalID)
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid DM portal ID: expected two caret-separated parts")
+	}
+	remote, err = ParseNodeID(parts[0])
+	if err != nil {
+		return remote, 0, err
+	}
+	synth, err = ParseNodeID(parts[1])
+	return remote, synth, err
 }

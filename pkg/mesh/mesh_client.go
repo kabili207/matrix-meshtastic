@@ -77,9 +77,11 @@ func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger z
 }
 
 func (c *MeshtasticClient) Connect() error {
-	err := c.mqttClient.Connect()
-	if err != nil {
-		return err
+	if !c.mqttClient.IsConnected() {
+		err := c.mqttClient.Connect()
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

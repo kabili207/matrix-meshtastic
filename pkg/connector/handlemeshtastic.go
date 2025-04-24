@@ -2,7 +2,6 @@ package connector
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
@@ -10,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/event"
@@ -33,10 +33,6 @@ func (c *MeshtasticClient) handleMeshEvent(rawEvt any) {
 		//case *mesh.MeshEnvelope:
 		//	c.sendMeshPresense(evt)
 	}
-}
-
-func MakeMessageID(sender string, packetId uint32) networkid.MessageID {
-	return networkid.MessageID(fmt.Sprintf("%s|%d", sender, packetId))
 }
 
 //unc (c *MeshtasticClient) sendMeshPresense(evt *mesh.MeshEnvelope) {
@@ -97,12 +93,25 @@ func (c *MeshtasticClient) handleMeshChannelJoined(evt *mesh.MeshChannelJoined) 
 }
 
 func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
-	if evt.IsDM {
-		// We don't handle DMs yet
+	meta, ok := c.UserLogin.Metadata.(*UserLoginMetadata)
+	if evt.IsDM && (!ok || meta.NodeID != evt.Envelope.To) {
 		return
 	}
 
 	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+
+	var portalKey networkid.PortalKey
+	var messIDSender = ""
+
+	roomType := database.RoomTypeDefault
+	if evt.IsDM {
+		portalKey = c.makeDMPortalKey(evt.Envelope.From, evt.Envelope.To)
+		messIDSender = evt.Envelope.From.String()
+		roomType = database.RoomTypeDM
+	} else {
+		portalKey = c.makePortalKey(evt.Envelope.ChannelID, evt.Envelope.ChannelKey)
+		messIDSender = evt.Envelope.ChannelID
+	}
 
 	mess := simplevent.Message[*mesh.MeshMessageEvent]{
 		EventMeta: simplevent.EventMeta{
@@ -112,13 +121,16 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 				c = c.Uint32("message_ts", uint32(evt.Envelope.Timestamp))
 				return c
 			},
-			PortalKey:    c.makePortalKey(evt.Envelope.ChannelID, evt.Envelope.ChannelKey),
+			PortalKey:    portalKey,
 			CreatePortal: true,
 			Sender:       c.makeEventSender(evt.Envelope.From),
 			Timestamp:    time.Unix(int64(evt.Envelope.Timestamp), 0),
+			PreHandleFunc: func(ctx context.Context, p *bridgev2.Portal) {
+				p.RoomType = roomType
+			},
 		},
 		Data:               evt,
-		ID:                 MakeMessageID(evt.Envelope.ChannelID, evt.Envelope.PacketId),
+		ID:                 meshid.MakeMessageID(messIDSender, evt.Envelope.PacketId),
 		ConvertMessageFunc: convertMessageEvent,
 	}
 
@@ -262,13 +274,23 @@ func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode meshid.NodeID, wantRepl
 //}
 
 func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
-	if evt.IsDM {
-		// We don't handle DMs yet
-		c.MeshClient.SendNack(evt.Envelope.To, evt.Envelope.From, evt.Envelope.PacketId)
+	meta, ok := c.UserLogin.Metadata.(*UserLoginMetadata)
+	if evt.IsDM && (!ok || meta.NodeID != evt.Envelope.To) {
 		return
 	}
 
 	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+
+	var portalKey networkid.PortalKey
+	var messIDSender = ""
+
+	if evt.IsDM {
+		portalKey = c.makeDMPortalKey(evt.Envelope.From, evt.Envelope.To)
+		messIDSender = evt.Envelope.From.String()
+	} else {
+		portalKey = c.makePortalKey(evt.Envelope.ChannelID, evt.Envelope.ChannelKey)
+		messIDSender = evt.Envelope.ChannelID
+	}
 
 	mess := simplevent.Reaction{
 		EventMeta: simplevent.EventMeta{
@@ -278,14 +300,14 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 				c = c.Uint32("message_ts", uint32(evt.Envelope.Timestamp))
 				return c
 			},
-			PortalKey:    c.makePortalKey(evt.Envelope.ChannelID, evt.Envelope.ChannelKey),
+			PortalKey:    portalKey,
 			CreatePortal: false,
 			Sender:       c.makeEventSender(evt.Envelope.From),
 			Timestamp:    time.Unix(int64(evt.Envelope.Timestamp), 0),
 		},
 		EmojiID:       networkid.EmojiID(evt.Emoji),
 		Emoji:         evt.Emoji,
-		TargetMessage: MakeMessageID(evt.Envelope.ChannelID, evt.ReplyId),
+		TargetMessage: meshid.MakeMessageID(messIDSender, evt.ReplyId),
 	}
 
 	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)

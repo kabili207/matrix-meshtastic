@@ -33,15 +33,37 @@ const (
 	LoginFieldShortName = "short-name"
 )
 
-// SimpleLogin represents an ongoing username/password login attempt.
+// MeshtasticLogin represents an ongoing username/password login attempt.
 type MeshtasticLogin struct {
 	User *bridgev2.User
-	Main *MeshtasticConnector // Needs access to the connector for LoadUserLogin and createWelcomeRoom...
+	Main *MeshtasticConnector // Needs access to the connector for LoadUserLogin
 	Log  zerolog.Logger
 }
 
-// Ensure SimpleLogin implements the required interface
+// Ensure MeshtasticLogin implements the required interface
 var _ bridgev2.LoginProcessUserInput = (*MeshtasticLogin)(nil)
+
+// GetLoginFlows implements bridgev2.NetworkConnector
+func (c *MeshtasticConnector) GetLoginFlows() []bridgev2.LoginFlow {
+	return []bridgev2.LoginFlow{{
+		ID:          LoginFlowIDUsernamePassword,
+		Name:        "Mesh Device",
+		Description: "Login as a mesh device.",
+	}}
+}
+
+// CreateLogin implements bridgev2.NetworkConnector
+func (c *MeshtasticConnector) CreateLogin(ctx context.Context, user *bridgev2.User, flowID string) (bridgev2.LoginProcess, error) {
+	if flowID != LoginFlowIDUsernamePassword {
+		return nil, fmt.Errorf("unsupported login flow ID: %s", flowID)
+	}
+	// Now returns SimpleLogin defined in login.go
+	return &MeshtasticLogin{
+		User: user,
+		Main: c, // Pass the connector instance
+		Log:  user.Log.With().Str("action", "login").Str("flow", flowID).Logger(),
+	}, nil
+}
 
 // Start implements bridgev2.LoginProcessUserInput
 func (sl *MeshtasticLogin) Start(ctx context.Context) (*bridgev2.LoginStep, error) {
@@ -94,14 +116,6 @@ func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string
 		return nil, fmt.Errorf("long and short names are required")
 	}
 
-	mqttClient := sl.Main.MakeMqttClient()
-	err := mqttClient.Connect()
-
-	if err != nil {
-		sl.Log.Err(err).Msg("Failed to log in to MQTT server")
-		return nil, fmt.Errorf("failed to log in to MQTT server: %w", err)
-	}
-
 	userNodeId := sl.Main.MXIDToNodeId(sl.User.MXID)
 
 	// Correct type is networkid.UserLoginID
@@ -136,14 +150,10 @@ func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string
 		sl.Log.Err(err).Msg("Failed to load user login after creation (this might indicate an issue)")
 	}
 
-	// Run welcome logic *after* the login is fully established and loaded
-	// This needs access to the connector instance (sl.Main)
-	go sl.Main.TryJoinChannels(ctx, ul)
-
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeComplete,
 		StepID:       LoginStepIDComplete,
-		Instructions: fmt.Sprintf("Successfully logged in as %s", userNodeId),
+		Instructions: fmt.Sprintf("Successfully logged in as %s. Please call the join-channel command to join a mesh channel", userNodeId),
 		CompleteParams: &bridgev2.LoginCompleteParams{
 			UserLoginID: ul.ID,
 			UserLogin:   ul, // Pass the loaded UserLogin back

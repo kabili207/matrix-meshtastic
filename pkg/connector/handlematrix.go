@@ -49,8 +49,21 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	}
 
 	fromNode := c.main.MXIDToNodeId(msg.Event.Sender)
+	channelId := c.main.Config.PrimaryChannel.Name
+	messIDSender := ""
+	targetNode := mesh.BROADCAST_ID
 
-	channelId, _, err := meshid.ParsePortalID(msg.Portal.ID)
+	switch msg.Portal.Portal.RoomType {
+	case database.RoomTypeDefault:
+		channelId, _, err = meshid.ParsePortalID(msg.Portal.ID)
+		messIDSender = channelId
+	case database.RoomTypeDM:
+		targetNode, _, err = meshid.ParseDMPortalID(msg.Portal.ID)
+		messIDSender = targetNode.String()
+	default:
+		err = fmt.Errorf("unsupported room type: %s", msg.Portal.Portal.RoomType)
+	}
+
 	if err != nil {
 		log.Err(err).
 			Str("user_mxid", string(msg.Event.Sender)).
@@ -62,7 +75,7 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	packetId, err := uint32(0), nil
 	switch msg.Content.MsgType {
 	case event.MsgText:
-		packetId, err = c.MeshClient.SendMessage(fromNode, mesh.BROADCAST_ID, channelId, msg.Content.Body)
+		packetId, err = c.MeshClient.SendMessage(fromNode, targetNode, channelId, msg.Content.Body)
 	case event.MsgLocation:
 		matches := geoRegex.FindStringSubmatch(msg.Content.GeoURI)
 		if len(matches) > 0 {
@@ -70,7 +83,7 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 			lon, _ := strconv.ParseFloat(matches[2], 32)
 			acc, _ := strconv.ParseFloat(matches[3], 32)
 			ts := time.UnixMilli(msg.Event.Timestamp)
-			packetId, err = c.MeshClient.SendPosition(fromNode, mesh.BROADCAST_ID, float32(lat), float32(lon), ptr.Ptr(float32(acc)), &ts)
+			packetId, err = c.MeshClient.SendPosition(fromNode, targetNode, float32(lat), float32(lon), ptr.Ptr(float32(acc)), &ts)
 		}
 	default:
 		return nil, bridgev2.ErrUnsupportedMessageType
@@ -79,9 +92,10 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	if err != nil {
 		return nil, bridgev2.WrapErrorInStatus(err).WithErrorAsMessage().WithIsCertain(true).WithSendNotice(true)
 	}
+
 	return &bridgev2.MatrixMessageResponse{
 		DB: &database.Message{
-			ID:       MakeMessageID(channelId, packetId),
+			ID:       meshid.MakeMessageID(messIDSender, packetId),
 			SenderID: meshid.MakeUserID(fromNode),
 		},
 		PostSave: c.postMessageSave(msg.Event.Sender, msg.Event.RoomID),
@@ -218,18 +232,35 @@ func (c *MeshtasticClient) PreHandleMatrixReaction(ctx context.Context, msg *bri
 	}, nil
 }
 
-func (s *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridgev2.MatrixReaction) (*database.Reaction, error) {
+func (c *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridgev2.MatrixReaction) (*database.Reaction, error) {
 
 	pre := msg.PreHandleResp
-	channelID, packetID, err := meshid.ParseMessageID(msg.TargetMessage.ID)
+	_, packetID, err := meshid.ParseMessageID(msg.TargetMessage.ID)
 	if err != nil {
 		return nil, err
 	}
+
+	channelID := c.main.Config.PrimaryChannel.Name
+	targetNode := mesh.BROADCAST_ID
+
+	switch msg.Portal.Portal.RoomType {
+	case database.RoomTypeDefault:
+		channelID, _, err = meshid.ParsePortalID(msg.Portal.ID)
+	case database.RoomTypeDM:
+		targetNode, _, err = meshid.ParseDMPortalID(msg.Portal.ID)
+	default:
+		err = fmt.Errorf("unsupported room type: %s", msg.Portal.Portal.RoomType)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
 	fromNode, err := meshid.ParseUserID(pre.SenderID)
 	if err != nil {
 		return nil, err
 	}
-	_, err = s.MeshClient.SendReaction(fromNode, mesh.BROADCAST_ID, channelID, packetID, pre.Emoji)
+	_, err = c.MeshClient.SendReaction(fromNode, targetNode, channelID, packetID, pre.Emoji)
 	return &database.Reaction{}, err
 }
 

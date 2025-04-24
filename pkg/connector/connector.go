@@ -3,7 +3,6 @@ package connector
 import (
 	"context"
 	_ "embed"
-	"fmt"
 	"hash/crc32"
 	"log/slog"
 
@@ -14,7 +13,6 @@ import (
 	slogzerolog "github.com/samber/slog-zerolog/v2"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/commands"
-	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -23,12 +21,13 @@ type MeshtasticConnector struct {
 	bridge           *bridgev2.Bridge
 	Config           Config
 	baseNodeID       meshid.NodeID
+	meshClient       *mesh.MeshtasticClient
 	managedNodeCache map[meshid.NodeID]bool
 }
 
 var _ bridgev2.NetworkConnector = (*MeshtasticConnector)(nil)
 
-// NewSimpleNetworkConnector creates a new instance of SimpleNetworkConnector
+// NewMeshtasticConnector creates a new instance of MeshtasticConnector
 func NewMeshtasticConnector(log zerolog.Logger) *MeshtasticConnector {
 	return &MeshtasticConnector{
 		log:              log.With().Str("component", "network-connector").Logger(),
@@ -117,101 +116,34 @@ func (tc *MeshtasticConnector) GetBridgeInfoVersion() (info, capabilities int) {
 }
 
 // Start implements bridgev2.NetworkConnector
-// Keeping context here as it was originally present.
 func (c *MeshtasticConnector) Start(ctx context.Context) error {
 	c.log.Info().Msg("MeshtasticConnector Start called")
-	// TODO: Implement actual startup logic if needed (e.g., connect to the network)
+	mqttClient := mqtt.NewClient(c.Config.Mqtt.Uri, c.Config.Mqtt.Username, c.Config.Mqtt.Password, c.Config.Mqtt.RootTopic)
+	// Init with Info level rather than the default of Debug, as the MQTT client is VERY noisy
+	slogger := slog.New(slogzerolog.Option{Level: slog.LevelInfo, Logger: &c.log}.NewZerologHandler())
+	mqttClient.SetLogger(slogger)
+
+	c.meshClient = mesh.NewMeshtasticClient(c.GetBaseNodeID(), mqttClient, c.log.With().Logger())
+	c.meshClient.SetIsManagedNodeHandler(c.IsManagedNode)
+	c.meshClient.SetOnConnectHandler(c.onMeshConnected)
+	c.meshClient.Connect()
+
 	return nil
 }
 
 // Stop implements bridgev2.NetworkConnector
-// Keeping context here as it was originally present.
 func (c *MeshtasticConnector) Stop(ctx context.Context) error {
 	c.log.Info().Msg("MeshtasticConnector Stop called")
-	// TODO: Implement actual shutdown logic if needed
+	if c.meshClient != nil {
+		c.meshClient.Disconnect()
+	}
 	return nil
 }
 
-type UserLoginMetadata struct {
-	NodeID meshid.NodeID `json:"node_id"`
-}
-
-type PortalMetadata struct {
-	ChannelName string  `json:"channel_name"`
-	ChannelKey  *string `json:"channel_key"`
-}
-type GhostMetadata struct {
-	LongName   string `json:"long_name"`
-	ShortName  string `json:"short_name"`
-	UserMXID   string `json:"user_mxid,omitempty"`
-	PublicKey  []byte `json:"public_key,omitempty"`
-	PrivateKey []byte `json:"private_key,omitempty"`
-}
-
-func (tc *MeshtasticConnector) GetDBMetaTypes() database.MetaTypes {
-	return database.MetaTypes{
-		Portal: func() any {
-			return &PortalMetadata{}
-		},
-		Ghost: func() any {
-			return &GhostMetadata{}
-		},
-		Message:  nil,
-		Reaction: nil,
-		UserLogin: func() any {
-			return &UserLoginMetadata{}
-		},
-	}
-}
-
-// --- Login Flow Implementation ---
-
-// GetLoginFlows implements bridgev2.NetworkConnector
-func (c *MeshtasticConnector) GetLoginFlows() []bridgev2.LoginFlow {
-	return []bridgev2.LoginFlow{{
-		ID:          LoginFlowIDUsernamePassword,
-		Name:        "MQTT Topic",
-		Description: "Connect to an MQTT topic.",
-	}}
-}
-
-// CreateLogin implements bridgev2.NetworkConnector
-func (c *MeshtasticConnector) CreateLogin(ctx context.Context, user *bridgev2.User, flowID string) (bridgev2.LoginProcess, error) {
-	if flowID != LoginFlowIDUsernamePassword {
-		return nil, fmt.Errorf("unsupported login flow ID: %s", flowID)
-	}
-	// Now returns SimpleLogin defined in login.go
-	return &MeshtasticLogin{
-		User: user,
-		Main: c, // Pass the connector instance
-		Log:  user.Log.With().Str("action", "login").Str("flow", flowID).Logger(),
-	}, nil
-}
-
-// --- End Login Flow Implementation ---
-
-func (c *MeshtasticConnector) MakeMqttClient() *mqtt.Client {
-	mc := mqtt.NewClient(c.Config.Mqtt.Uri, c.Config.Mqtt.Username, c.Config.Mqtt.Password, c.Config.Mqtt.RootTopic)
-	// Init with Info level rather than the default of Debug, as the MQTT client is VERY noisy
-	slogger := slog.New(slogzerolog.Option{Level: slog.LevelInfo, Logger: &c.log}.NewZerologHandler())
-	mc.SetLogger(slogger)
-	return mc
-}
-
 func (c *MeshtasticConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
-
-	mqttClient := c.MakeMqttClient()
-
-	meshClient := mesh.NewMeshtasticClient(c.GetBaseNodeID(), mqttClient, c.log.With().Logger())
-	meshClient.SetIsManagedNodeHandler(c.IsManagedNode)
-	meshClient.SetOnConnectHandler(c.onMqttConnected)
-	if !meshClient.IsConnected() {
-		meshClient.Connect()
-	}
-
 	login.Client = &MeshtasticClient{
 		UserLogin:  login,
-		MeshClient: meshClient,
+		MeshClient: c.meshClient,
 		log:        c.log.With().Str("user_id", string(login.ID)).Logger(),
 		bridge:     c.bridge,
 		main:       c,
@@ -219,11 +151,7 @@ func (c *MeshtasticConnector) LoadUserLogin(ctx context.Context, login *bridgev2
 	return nil
 }
 
-func (c *MeshtasticConnector) TryJoinChannels(ctx context.Context, login *bridgev2.UserLogin) {
-	login.Client.(*MeshtasticClient).TryJoinChannels(ctx)
-}
-
-func (c *MeshtasticConnector) onMqttConnected(client *mesh.MeshtasticClient) {
+func (c *MeshtasticConnector) onMeshConnected(client *mesh.MeshtasticClient) {
 	client.AddChannel(c.Config.PrimaryChannel.Name, c.Config.PrimaryChannel.Key)
 	client.SendNodeInfo(c.GetBaseNodeID(), mesh.BROADCAST_ID, c.Config.LongName, c.Config.ShortName, false)
 	client.SendTelemetry(c.GetBaseNodeID(), mesh.BROADCAST_ID)
