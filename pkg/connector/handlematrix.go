@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"go.mau.fi/util/ptr"
 	"go.mau.fi/util/variationselector"
@@ -51,7 +50,7 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	fromNode := c.main.MXIDToNodeId(msg.Event.Sender)
 	channelId := c.main.Config.PrimaryChannel.Name
 	messIDSender := ""
-	targetNode := mesh.BROADCAST_ID
+	targetNode := meshid.BROADCAST_ID
 
 	switch msg.Portal.Portal.RoomType {
 	case database.RoomTypeDefault:
@@ -139,7 +138,7 @@ func (c *MeshtasticClient) postMessageSave(mxid id.UserID, roomId id.RoomID) fun
 				ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostSenderID(mxid), c.updateGhostNames(longName, string(shortName))),
 			}
 			ghost.UpdateInfo(ctx, userInfo)
-			c.MeshClient.SendNodeInfo(c.main.MXIDToNodeId(mxid), mesh.BROADCAST_ID, longName, shortName, false)
+			c.MeshClient.SendNodeInfo(c.main.MXIDToNodeId(mxid), meshid.BROADCAST_ID, longName, shortName, false)
 		}
 	}
 }
@@ -166,7 +165,7 @@ func (c *MeshtasticClient) UpdateGhostMeshNames(ctx context.Context, userID netw
 	if err != nil {
 		return err
 	}
-	return c.MeshClient.SendNodeInfo(nodeID, mesh.BROADCAST_ID, longName, shortName, false)
+	return c.MeshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, longName, shortName, false)
 }
 
 func (c *MeshtasticClient) updateGhostSenderID(mxid id.UserID) func(context.Context, *bridgev2.Ghost) bool {
@@ -181,6 +180,7 @@ func (c *MeshtasticClient) updateGhostSenderID(mxid id.UserID) func(context.Cont
 		newId := mxid.String()
 		forceSave := newId != meta.UserMXID
 		meta.UserMXID = newId
+		meta.IsManaged = true
 		return forceSave
 	}
 }
@@ -241,7 +241,7 @@ func (c *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridge
 	}
 
 	channelID := c.main.Config.PrimaryChannel.Name
-	targetNode := mesh.BROADCAST_ID
+	targetNode := meshid.BROADCAST_ID
 
 	switch msg.Portal.Portal.RoomType {
 	case database.RoomTypeDefault:
@@ -264,17 +264,8 @@ func (c *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridge
 	return &database.Reaction{}, err
 }
 
-func (c *MeshtasticClient) SendPresenseToMesh(ctx context.Context, sender id.UserID) {
-	log := c.log.With().
-		Stringer("sender_id", sender).
-		Logger()
-	nodeID := c.main.MXIDToNodeId(sender)
-	_ = log.WithContext(ctx)
-
-	err := c.MeshClient.SendTelemetry(nodeID, mesh.BROADCAST_ID)
-	if err != nil {
-		log.Err(err).Msg("Error sending telemetry")
-	}
+func (c *MeshtasticClient) UpdateLastSeenDate(ctx context.Context, sender id.UserID) {
+	// TODO: Cache last seen date in bridge
 }
 
 func (mc *MeshtasticClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.MatrixMembershipChange) (bool, error) {
@@ -335,7 +326,7 @@ func (mc *MeshtasticClient) HandleMatrixMembership(ctx context.Context, msg *bri
 }
 
 func (c *MeshtasticClient) HandleMatrixReactionRemove(ctx context.Context, msg *bridgev2.MatrixReactionRemove) error {
-	c.SendPresenseToMesh(ctx, msg.Event.Sender)
+	c.UpdateLastSeenDate(ctx, msg.Event.Sender)
 	return fmt.Errorf("reaction removal is not supported on Meshtastic network")
 }
 
@@ -349,8 +340,7 @@ func (c *MeshtasticClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2
 		Str("portal", channelID).
 		Logger()
 	log.Debug().Msg("Handling typing change")
-	// TODO: bridgev2 only supports typing events for the portal user
-	c.SendPresenseToMesh(ctx, c.UserLogin.UserMXID)
+	c.UpdateLastSeenDate(ctx, c.UserLogin.UserMXID)
 	return nil
 }
 
@@ -361,7 +351,6 @@ func (c *MeshtasticClient) HandleMatrixReadReceipt(ctx context.Context, msg *bri
 		Str("portal", channelID).
 		Logger()
 	log.Debug().Msg("Handling read receipts")
-	// TODO: bridgev2 only supports read receipt events for the portal user
-	c.SendPresenseToMesh(ctx, c.UserLogin.UserMXID)
+	c.UpdateLastSeenDate(ctx, c.UserLogin.UserMXID)
 	return nil
 }

@@ -17,6 +17,7 @@ type GhostMetadata struct {
 	LongName   string `json:"long_name"`
 	ShortName  string `json:"short_name"`
 	UserMXID   string `json:"user_mxid,omitempty"`
+	IsManaged  bool   `json:"is_managed"`
 	PublicKey  []byte `json:"public_key,omitempty"`
 	PrivateKey []byte `json:"private_key,omitempty"`
 }

@@ -198,9 +198,9 @@ func (c *MeshtasticClient) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 
 	//c.sendMeshPresense(&evt.Envelope)
 
-	if evt.Envelope.To != mesh.BROADCAST_ID {
+	if evt.Envelope.To != meshid.BROADCAST_ID {
 		log.Debug().Msg("Broadcasting node info")
-		c.sendNodeInfo(evt.Envelope.To, mesh.BROADCAST_ID, false)
+		c.sendNodeInfo(evt.Envelope.To, meshid.BROADCAST_ID, false)
 	}
 
 	if evt.LongName == "" {

@@ -60,7 +60,7 @@ func (c *MeshtasticClient) insertUnknownHops(packet *pb.MeshPacket, disco *pb.Ro
 
 		for i := 0; i < diff; i++ {
 			if routeCount < len(*route) {
-				r := append(*route, uint32(BROADCAST_ID))
+				r := append(*route, uint32(meshid.BROADCAST_ID))
 				route = &r
 				routeCount += 1
 			}

@@ -23,6 +23,7 @@ type MeshtasticConnector struct {
 	baseNodeID       meshid.NodeID
 	meshClient       *mesh.MeshtasticClient
 	managedNodeCache map[meshid.NodeID]bool
+	bgTaskCanceller  context.CancelFunc
 }
 
 var _ bridgev2.NetworkConnector = (*MeshtasticConnector)(nil)
@@ -134,6 +135,11 @@ func (c *MeshtasticConnector) Start(ctx context.Context) error {
 // Stop implements bridgev2.NetworkConnector
 func (c *MeshtasticConnector) Stop(ctx context.Context) error {
 	c.log.Info().Msg("MeshtasticConnector Stop called")
+
+	if c.bgTaskCanceller != nil {
+		c.bgTaskCanceller()
+	}
+
 	if c.meshClient != nil {
 		c.meshClient.Disconnect()
 	}
@@ -153,8 +159,6 @@ func (c *MeshtasticConnector) LoadUserLogin(ctx context.Context, login *bridgev2
 
 func (c *MeshtasticConnector) onMeshConnected(client *mesh.MeshtasticClient) {
 	client.AddChannel(c.Config.PrimaryChannel.Name, c.Config.PrimaryChannel.Key)
-	client.SendNodeInfo(c.GetBaseNodeID(), mesh.BROADCAST_ID, c.Config.LongName, c.Config.ShortName, false)
-	client.SendTelemetry(c.GetBaseNodeID(), mesh.BROADCAST_ID)
 
 	ctx := context.Background()
 
@@ -164,4 +168,8 @@ func (c *MeshtasticConnector) onMeshConnected(client *mesh.MeshtasticClient) {
 			client.AddChannel(channelID, channelKey)
 		}
 	}
+
+	bgContext, cancelFunc := context.WithCancel(ctx)
+	c.bgTaskCanceller = cancelFunc
+	c.RunNodeInfoTask(bgContext)
 }
