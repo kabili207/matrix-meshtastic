@@ -48,7 +48,6 @@ require (
 	github.com/charmbracelet/x/ansi v0.8.0 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
-	github.com/martinlindhe/crc24 v0.0.0-20240111230047-8aeda6bbd8ac
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/meshnet-gophers/meshtastic-go v0.1.7
 	github.com/muesli/termenv v0.16.0 // indirect

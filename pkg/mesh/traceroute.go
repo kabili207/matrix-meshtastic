@@ -18,12 +18,12 @@ func (c *MeshtasticClient) handleTraceroute(env *pb.ServiceEnvelope, message *pb
 	c.insertUnknownHops(env.Packet, disco, isTowardsDestination)
 	if toNode != c.nodeId {
 		env.Packet.HopLimit -= 1
-		c.appendMyIdAndSnr(env.Packet, disco, isTowardsDestination, false)
+		c.appendMyIdAndSnr(disco, isTowardsDestination, false)
 	}
-	c.appendMyIdAndSnr(env.Packet, disco, isTowardsDestination, true)
+	c.appendMyIdAndSnr(disco, isTowardsDestination, true)
 
 	if toNode != c.nodeId {
-		c.appendMyIdAndSnr(env.Packet, disco, !isTowardsDestination, false)
+		c.appendMyIdAndSnr(disco, !isTowardsDestination, false)
 	}
 
 	c.sendProtoMessage(env.ChannelId, disco, PacketInfo{
@@ -77,7 +77,7 @@ func (c *MeshtasticClient) insertUnknownHops(packet *pb.MeshPacket, disco *pb.Ro
 	}
 }
 
-func (c *MeshtasticClient) appendMyIdAndSnr(packet *pb.MeshPacket, disco *pb.RouteDiscovery, isTowardsDestination bool, snrOnly bool) {
+func (c *MeshtasticClient) appendMyIdAndSnr(disco *pb.RouteDiscovery, isTowardsDestination bool, snrOnly bool) {
 	// Insert unknown
 	var routeCount = 0
 	var snrCount = 0
