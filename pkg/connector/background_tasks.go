@@ -2,7 +2,7 @@ package connector
 
 import (
 	"context"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
@@ -88,15 +88,12 @@ func (c *MeshtasticConnector) doForAllManagedGhosts(ctx context.Context, callbac
 
 	for _, g := range ghosts {
 		if meta, ok := g.Metadata.(*GhostMetadata); ok {
-			// Doesn't need to be cryptographically secure, we just want to make sure
-			// we don't flood the mesh all at once
-			waitTime := rand.Int63() % 300
-
-			go func(delay int64, m *GhostMetadata) {
+			waitTime := rand.N(300 * time.Second)
+			go func(delay time.Duration, m *GhostMetadata) {
 				select {
 				case <-ctx.Done():
 					break
-				case <-time.After(time.Second * time.Duration(delay)):
+				case <-time.After(delay):
 					nodeID := meshid.MXIDToNodeID(id.UserID(m.UserMXID))
 					callback(nodeID, meta)
 				}
