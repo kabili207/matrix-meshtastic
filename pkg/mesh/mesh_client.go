@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"math"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -63,7 +65,6 @@ func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger z
 		mqttClient:        mqttClient,
 		channelKeys:       map[string][]byte{},
 		channelKeyStrings: map[string]string{},
-		currentPacketId:   uint32(now.Unix()),
 		seenNodes:         map[meshid.NodeID]MeshNodeInfo{},
 		eventHandlers:     []MeshEventFunc{},
 		log:               logger,
@@ -190,6 +191,21 @@ type PacketInfo struct {
 	Emoji              bool
 }
 
+func (c *MeshtasticClient) generatePacketId() uint32 {
+	// Based on the official packet generation method
+	// https://github.com/meshtastic/firmware/blob/03f19bca0e9e456342dfb0397a805404677e5abc/src/mesh/Router.cpp#L98
+
+	rollingPacketId := c.currentPacketId
+
+	if rollingPacketId == 0 {
+		rollingPacketId = rand.Uint32()
+	}
+
+	rollingPacketId++
+	c.currentPacketId = (rollingPacketId & (math.MaxUint32 >> 22)) | (rand.Uint32() << 10)
+	return c.currentPacketId
+}
+
 func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info PacketInfo) (packetID uint32, err error) {
 
 	if !c.managedNodeFunc(meshid.NodeID(info.From)) {
@@ -222,8 +238,7 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 	now := time.Now()
 	time := uint32(now.Unix())
 
-	c.currentPacketId = c.currentPacketId + 1
-	packetId := c.currentPacketId
+	packetId := c.generatePacketId()
 
 	rawData, err := proto.Marshal(&data)
 	if err != nil {
