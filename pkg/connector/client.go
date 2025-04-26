@@ -112,7 +112,7 @@ func (c *MeshtasticClient) ResolveIdentifier(ctx context.Context, identifier str
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ghost: %w", err)
 	}
-	myNode := c.main.MXIDToNodeId(c.UserLogin.UserMXID)
+	myNode := meshid.MXIDToNodeID(c.UserLogin.UserMXID)
 
 	return &bridgev2.ResolveIdentifierResponse{
 		Ghost:  ghost,

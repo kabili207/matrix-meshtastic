@@ -29,7 +29,7 @@ func (mc *MeshtasticClient) wrapDMInfo(synthNode, remoteNode meshid.NodeID) *bri
 }
 
 func (mc *MeshtasticClient) wrapChatInfo(user *bridgev2.User, channelID, channelKey string) *bridgev2.ChatInfo {
-	nodeID := mc.main.MXIDToNodeId(user.MXID)
+	nodeID := meshid.MXIDToNodeID(user.MXID)
 	info := &bridgev2.ChatInfo{
 		Name:  ptr.Ptr(channelID),
 		Topic: ptr.Ptr(fmt.Sprintf("ID: %s\nKey: %s", channelID, channelKey)),

@@ -27,20 +27,23 @@ const (
 
 type MeshEventFunc func(event any)
 type IsManagedFunc func(nodeID meshid.NodeID) bool
-type MeshConnectedFunc func(client *MeshtasticClient)
+type MeshConnectedFunc func(isReconnect bool)
+type MeshDisconnectedFunc func()
 
 type MeshtasticClient struct {
-	startTime         *time.Time
-	nodeId            meshid.NodeID
-	mqttClient        *mqtt.Client
-	channelKeys       map[string][]byte
-	channelKeyStrings map[string]string
-	currentPacketId   uint32
-	seenNodes         map[meshid.NodeID]MeshNodeInfo
-	eventHandlers     []MeshEventFunc
-	log               zerolog.Logger
-	managedNodeFunc   IsManagedFunc
-	onConnectHandler  MeshConnectedFunc
+	startTime           *time.Time
+	nodeId              meshid.NodeID
+	mqttClient          *mqtt.Client
+	channelKeys         map[string][]byte
+	channelKeyStrings   map[string]string
+	currentPacketId     uint32
+	seenNodes           map[meshid.NodeID]MeshNodeInfo
+	eventHandlers       []MeshEventFunc
+	log                 zerolog.Logger
+	managedNodeFunc     IsManagedFunc
+	onConnectHandler    MeshConnectedFunc
+	onDisconnectHandler MeshDisconnectedFunc
+	previouslyConnected bool
 }
 
 func nodeIdToMacAddr(nodeId meshid.NodeID) []byte {
@@ -94,8 +97,10 @@ func (c *MeshtasticClient) onMqttConnected() {
 	c.log.Debug().
 		Str("topic", c.mqttClient.TopicRoot()).
 		Msg("Connected to MQTT broker")
+	isReconnect := c.previouslyConnected
+	c.previouslyConnected = true
 	if c.onConnectHandler != nil {
-		c.onConnectHandler(c)
+		c.onConnectHandler(isReconnect)
 	}
 }
 
@@ -107,6 +112,9 @@ func (c *MeshtasticClient) onMqttReconnecting() {
 
 func (c *MeshtasticClient) onMqttConnectionLost(err error) {
 	c.log.Err(err).Msg("Lost connection to MQTT broker")
+	if c.onDisconnectHandler != nil {
+		c.onDisconnectHandler()
+	}
 }
 
 func (c *MeshtasticClient) AddChannel(channelName, key string) error {
@@ -139,6 +147,10 @@ func (c *MeshtasticClient) SetOnConnectHandler(handler MeshConnectedFunc) {
 	c.onConnectHandler = handler
 }
 
+func (c *MeshtasticClient) SetOnDisconnectHandler(handler MeshDisconnectedFunc) {
+	c.onDisconnectHandler = handler
+}
+
 func (c *MeshtasticClient) generateKey(key string) ([]byte, error) {
 	// Pad the key with '=' characters to ensure it's a valid base64 string
 	padding := (4 - len(key)%4) % 4
@@ -159,174 +171,6 @@ type MeshNodeInfo struct {
 	//IsLicensed    bool
 	HardwareModel *pb.HardwareModel
 	LastSeen      *time.Time
-}
-
-// TODO: Create a user info struct to hold from, long, and short names
-func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortName string, wantAck bool) error {
-
-	if len([]byte(longName)) > 39 {
-		return errors.New("long name must be less than 40 bytes")
-	} else if len([]byte(shortName)) > 4 {
-		return errors.New("short name must be less than 5 bytes")
-	}
-
-	role := pb.Config_DeviceConfig_CLIENT
-	hw := pb.HardwareModel_PRIVATE_HW
-	if from == c.nodeId {
-		role = pb.Config_DeviceConfig_REPEATER
-		// As funny as this is, it crashes version 2.5.16 of the Android app
-		// hw = pb.HardwareModel_RESERVED_FRIED_CHICKEN
-	}
-
-	nodeInfo := pb.User{
-		Id:         from.String(),
-		LongName:   longName,
-		ShortName:  shortName,
-		IsLicensed: false,
-		HwModel:    hw,
-		Role:       role,
-		Macaddr:    nodeIdToMacAddr(from),
-	}
-
-	_, err := c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
-		To:        to,
-		From:      from,
-		PortNum:   pb.PortNum_NODEINFO_APP,
-		Encrypted: true,
-		WantAck:   wantAck,
-	})
-	return err
-}
-
-// TODO: Create a user info struct to hold from, long, and short names
-func (c *MeshtasticClient) SendTelemetry(from, to meshid.NodeID) error {
-
-	now := time.Now()
-	now = now.UTC()
-
-	upTime := now.Sub(*c.startTime)
-	uptimeSec := uint32(upTime.Abs().Seconds())
-
-	// Value > 100 means device is mains powered
-	battLevel := uint32(101)
-
-	nodeInfo := pb.Telemetry{
-		Time: uint32(now.Unix()),
-		Variant: &pb.Telemetry_DeviceMetrics{
-			DeviceMetrics: &pb.DeviceMetrics{
-				BatteryLevel:  &battLevel,
-				UptimeSeconds: &uptimeSec,
-			},
-		},
-	}
-
-	_, err := c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{PortNum: pb.PortNum_TELEMETRY_APP, Encrypted: true, From: from, To: to})
-	return err
-}
-
-// TODO: Create a user info struct to hold from, long, and short names
-func (c *MeshtasticClient) SendPosition(from, to meshid.NodeID, latitude, longitude float32, accuracy *float32, timestamp *time.Time) (packetID uint32, err error) {
-
-	now := time.Now()
-	now = now.UTC()
-
-	latI := int32(latitude * 1e7)
-	lonI := int32(longitude * 1e7)
-
-	nodeInfo := pb.Position{
-		Time:          uint32(now.Unix()),
-		Timestamp:     uint32(timestamp.Unix()),
-		LatitudeI:     &latI,
-		LongitudeI:    &lonI,
-		PrecisionBits: c.GetPrecisionBits(accuracy),
-	}
-
-	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{PortNum: pb.PortNum_POSITION_APP, Encrypted: true, From: from, To: to})
-}
-
-func (c *MeshtasticClient) GetPrecisionBits(meters *float32) uint32 {
-	if meters == nil {
-		return 0
-	}
-	var val uint32 = 0
-
-	switch m := *meters; {
-	case m >= 23300:
-		val = 10
-	case m >= 11700:
-		val = 11
-	case m >= 5800:
-		val = 12
-	case m >= 2900:
-		val = 13
-	case m >= 1500:
-		val = 14
-	case m >= 729:
-		val = 15
-	case m >= 364:
-		val = 16
-	case m >= 182:
-		val = 17
-	case m >= 91:
-		val = 18
-	case m >= 45:
-		val = 19
-	default:
-		val = 20
-	}
-
-	return val
-}
-
-func (c *MeshtasticClient) SendMessage(from, to meshid.NodeID, channel string, message string) (uint32, error) {
-	data := []byte(message)
-	return c.sendBytes(channel, data, PacketInfo{PortNum: pb.PortNum_TEXT_MESSAGE_APP, Encrypted: true, From: from, To: to})
-}
-
-func (c *MeshtasticClient) SendReaction(from, to meshid.NodeID, channel string, targetPacketId uint32, emoji string) (packetID uint32, err error) {
-	data := []byte(emoji)
-	return c.sendBytes(channel, data, PacketInfo{
-		PortNum:   pb.PortNum_TEXT_MESSAGE_APP,
-		Encrypted: true,
-		From:      from,
-		To:        to,
-		Emoji:     true,
-		ReplyId:   targetPacketId,
-	})
-}
-
-func (c *MeshtasticClient) SendAck(from, to meshid.NodeID, packetId uint32) (uint32, error) {
-
-	nodeInfo := pb.Routing{
-		Variant: &pb.Routing_ErrorReason{
-			ErrorReason: pb.Routing_NONE,
-		},
-	}
-
-	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
-		PortNum:   pb.PortNum_ROUTING_APP,
-		Encrypted: true,
-		From:      from,
-		To:        to,
-		RequestId: packetId,
-	})
-}
-
-func (c *MeshtasticClient) SendNack(from, to meshid.NodeID, packetId uint32) (uint32, error) {
-	// Not all user interfaces show this as an error (notably MUI), but it's better than nothing
-	nodeInfo := pb.Routing{
-		Variant: &pb.Routing_ErrorReason{
-			ErrorReason: pb.Routing_GOT_NAK,
-		},
-	}
-
-	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
-		PortNum:   pb.PortNum_ROUTING_APP,
-		Encrypted: true,
-		From:      c.nodeId,
-		To:        to,
-		RequestId: packetId,
-	})
 }
 
 func (c *MeshtasticClient) sendProtoMessage(channel string, message proto.Message, info PacketInfo) (packetID uint32, err error) {

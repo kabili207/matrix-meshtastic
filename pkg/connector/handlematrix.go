@@ -47,7 +47,7 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 		return nil, nil
 	}
 
-	fromNode := c.main.MXIDToNodeId(msg.Event.Sender)
+	fromNode := meshid.MXIDToNodeID(msg.Event.Sender)
 	channelId := c.main.Config.PrimaryChannel.Name
 	messIDSender := ""
 	targetNode := meshid.BROADCAST_ID
@@ -135,10 +135,10 @@ func (c *MeshtasticClient) postMessageSave(mxid id.UserID, roomId id.RoomID) fun
 				Name:         &longName,
 				IsBot:        ptr.Ptr(false),
 				Identifiers:  []string{},
-				ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostSenderID(mxid), c.updateGhostNames(longName, string(shortName))),
+				ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostSenderID(mxid), c.main.updateGhostNames(longName, string(shortName))),
 			}
 			ghost.UpdateInfo(ctx, userInfo)
-			c.MeshClient.SendNodeInfo(c.main.MXIDToNodeId(mxid), meshid.BROADCAST_ID, longName, shortName, false)
+			c.MeshClient.SendNodeInfo(meshid.MXIDToNodeID(mxid), meshid.BROADCAST_ID, longName, shortName, false)
 		}
 	}
 }
@@ -158,7 +158,7 @@ func (c *MeshtasticClient) UpdateGhostMeshNames(ctx context.Context, userID netw
 		Name:         &longName,
 		IsBot:        ptr.Ptr(false),
 		Identifiers:  []string{},
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostNames(longName, string(shortName))),
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.main.updateGhostNames(longName, string(shortName))),
 	}
 	ghost.UpdateInfo(ctx, userInfo)
 	nodeID, err := meshid.ParseUserID(userID)
@@ -185,7 +185,7 @@ func (c *MeshtasticClient) updateGhostSenderID(mxid id.UserID) func(context.Cont
 	}
 }
 
-func (c *MeshtasticClient) updateGhostNames(longName, shortName string) func(context.Context, *bridgev2.Ghost) bool {
+func (c *MeshtasticConnector) updateGhostNames(longName, shortName string) func(context.Context, *bridgev2.Ghost) bool {
 	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
 		meta, ok := ghost.Metadata.(*GhostMetadata)
 		if !ok {
@@ -198,7 +198,7 @@ func (c *MeshtasticClient) updateGhostNames(longName, shortName string) func(con
 	}
 }
 
-func (c *MeshtasticClient) updateGhostPublicKey(publicKey []byte) func(context.Context, *bridgev2.Ghost) bool {
+func (c *MeshtasticConnector) updateGhostPublicKey(publicKey []byte) func(context.Context, *bridgev2.Ghost) bool {
 	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
 		meta, ok := ghost.Metadata.(*GhostMetadata)
 		if !ok {
@@ -210,7 +210,7 @@ func (c *MeshtasticClient) updateGhostPublicKey(publicKey []byte) func(context.C
 	}
 }
 
-func (c *MeshtasticClient) updateGhostPrivateKey(publicKey, privateKey []byte) func(context.Context, *bridgev2.Ghost) bool {
+func (c *MeshtasticConnector) updateGhostPrivateKey(publicKey, privateKey []byte) func(context.Context, *bridgev2.Ghost) bool {
 	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
 		meta, ok := ghost.Metadata.(*GhostMetadata)
 		if !ok {
@@ -224,7 +224,7 @@ func (c *MeshtasticClient) updateGhostPrivateKey(publicKey, privateKey []byte) f
 }
 
 func (c *MeshtasticClient) PreHandleMatrixReaction(ctx context.Context, msg *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {
-	fromNode := c.main.MXIDToNodeId(msg.Event.Sender)
+	fromNode := meshid.MXIDToNodeID(msg.Event.Sender)
 	return bridgev2.MatrixReactionPreResponse{
 		SenderID: meshid.MakeUserID(fromNode),
 		EmojiID:  networkid.EmojiID(msg.Content.RelatesTo.Key),

@@ -2,7 +2,6 @@ package connector
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 
@@ -101,12 +100,6 @@ func (sl *MeshtasticLogin) Start(ctx context.Context) (*bridgev2.LoginStep, erro
 	}, nil
 }
 
-func nodeIdToMacAddr(nodeId uint32) []byte {
-	a := make([]byte, 4)
-	binary.BigEndian.PutUint32(a, nodeId)
-	return []byte{0xA, 0, a[0], a[1], a[2], a[3]}
-}
-
 // SubmitUserInput implements bridgev2.LoginProcessUserInput
 func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string]string) (*bridgev2.LoginStep, error) {
 	long_name := input[LoginFieldLongName]
@@ -116,7 +109,7 @@ func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string
 		return nil, fmt.Errorf("long and short names are required")
 	}
 
-	userNodeId := sl.Main.MXIDToNodeId(sl.User.MXID)
+	userNodeId := meshid.MXIDToNodeID(sl.User.MXID)
 
 	// Correct type is networkid.UserLoginID
 	var loginID networkid.UserLoginID = meshid.MakeUserLoginID(userNodeId)

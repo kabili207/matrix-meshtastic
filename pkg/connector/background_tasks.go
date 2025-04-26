@@ -23,26 +23,26 @@ func init() {
 
 func (mc *MeshtasticConnector) RunNodeInfoTask(ctx context.Context) error {
 	go func() {
-		mc.sendNodeInfo(ctx)
-		mc.sendTelemetry(ctx)
+		mc.sendPeriodicNodeInfo(ctx)
+		mc.sendPeriodicTelemetry(ctx)
 		for {
 			select {
 			case <-ctx.Done():
 				mc.log.Err(ctx.Err()).Msg("Stopping node info task")
 				return
 			case <-time.After(rateTelemetry):
-				mc.sendTelemetry(ctx)
+				mc.sendPeriodicTelemetry(ctx)
 			case <-time.After(rateNodeInfo):
-				mc.sendNodeInfo(ctx)
+				mc.sendPeriodicNodeInfo(ctx)
 			case <-time.After(rateNeighborInfo):
-				mc.sendNeighborInfo(ctx)
+				mc.sendPeriodicNeighborInfo(ctx)
 			}
 		}
 	}()
 	return nil
 }
 
-func (c *MeshtasticConnector) sendTelemetry(ctx context.Context) {
+func (c *MeshtasticConnector) sendPeriodicTelemetry(ctx context.Context) {
 	c.meshClient.SendTelemetry(c.GetBaseNodeID(), meshid.BROADCAST_ID)
 	c.doForAllManagedGhosts(ctx, func(nodeID meshid.NodeID, meta *GhostMetadata) {
 		c.log.Debug().Msgf("Broadcasting telemetry for %s (%s)", nodeID, meta.LongName)
@@ -50,7 +50,7 @@ func (c *MeshtasticConnector) sendTelemetry(ctx context.Context) {
 	})
 }
 
-func (c *MeshtasticConnector) sendNeighborInfo(ctx context.Context) {
+func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 
 	ghosts, err := c.bridge.DB.Ghost.GetByMetadata(ctx, "is_managed", true)
 	if err != nil {
@@ -60,7 +60,7 @@ func (c *MeshtasticConnector) sendNeighborInfo(ctx context.Context) {
 	nodeIDs := []meshid.NodeID{c.GetBaseNodeID()}
 	for _, g := range ghosts {
 		if meta, ok := g.Metadata.(*GhostMetadata); ok {
-			nodeIDs = append(nodeIDs, c.MXIDToNodeId(id.UserID(meta.UserMXID)))
+			nodeIDs = append(nodeIDs, meshid.MXIDToNodeID(id.UserID(meta.UserMXID)))
 		}
 	}
 	c.meshClient.SendNeighborInfo(c.GetBaseNodeID(), nodeIDs)
@@ -70,7 +70,7 @@ func (c *MeshtasticConnector) sendNeighborInfo(ctx context.Context) {
 	})
 }
 
-func (c *MeshtasticConnector) sendNodeInfo(ctx context.Context) {
+func (c *MeshtasticConnector) sendPeriodicNodeInfo(ctx context.Context) {
 	c.meshClient.SendNodeInfo(c.GetBaseNodeID(), meshid.BROADCAST_ID, c.Config.LongName, c.Config.ShortName, false)
 
 	c.doForAllManagedGhosts(ctx, func(nodeID meshid.NodeID, meta *GhostMetadata) {
@@ -97,7 +97,7 @@ func (c *MeshtasticConnector) doForAllManagedGhosts(ctx context.Context, callbac
 				case <-ctx.Done():
 					break
 				case <-time.After(time.Second * time.Duration(delay)):
-					nodeID := c.MXIDToNodeId(id.UserID(m.UserMXID))
+					nodeID := meshid.MXIDToNodeID(id.UserID(m.UserMXID))
 					callback(nodeID, meta)
 				}
 

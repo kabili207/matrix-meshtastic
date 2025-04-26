@@ -15,23 +15,31 @@ import (
 	"maunium.net/go/mautrix/event"
 )
 
-func (c *MeshtasticClient) handleMeshEvent(rawEvt any) {
+// Handles events that are more general to the connector
+func (c *MeshtasticConnector) handleGlobalMeshEvent(rawEvt any) {
 
 	switch evt := rawEvt.(type) {
-	case *mesh.MeshMessageEvent:
-		c.handleMeshMessage(evt)
 	case *mesh.MeshNodeInfoEvent:
 		c.handleMeshNodeInfo(evt)
-	case *mesh.MeshChannelJoined:
-		c.handleMeshChannelJoined(evt)
-	case *mesh.MeshReactionEvent:
-		c.handleMeshReaction(evt)
 	case *mesh.MeshLocationEvent:
 		c.handleMeshLocation(evt)
 	case *mesh.MeshWaypointEvent:
 		c.handleMeshWaypoint(evt)
 		//case *mesh.MeshEnvelope:
 		//	c.sendMeshPresense(evt)
+	}
+}
+
+// Handles events that are more user-specific
+func (c *MeshtasticClient) handleMeshEvent(rawEvt any) {
+
+	switch evt := rawEvt.(type) {
+	case *mesh.MeshMessageEvent:
+		c.handleMeshMessage(evt)
+	case *mesh.MeshChannelJoined:
+		c.handleMeshChannelJoined(evt)
+	case *mesh.MeshReactionEvent:
+		c.handleMeshReaction(evt)
 	}
 }
 
@@ -49,8 +57,8 @@ func (c *MeshtasticClient) handleMeshEvent(rawEvt any) {
 //	})
 //
 
-func (c *MeshtasticClient) handleMeshLocation(evt *mesh.MeshLocationEvent) {
-	log := c.UserLogin.Log.With().
+func (c *MeshtasticConnector) handleMeshLocation(evt *mesh.MeshLocationEvent) {
+	log := c.log.With().
 		Str("action", "location_update").
 		Stringer("node_id", evt.Envelope.From).
 		Logger()
@@ -58,6 +66,7 @@ func (c *MeshtasticClient) handleMeshLocation(evt *mesh.MeshLocationEvent) {
 		Float32("latitude", evt.Latitude).
 		Float32("longitude", evt.Latitude).
 		Msg("Location update received")
+
 	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
 }
 
@@ -98,7 +107,7 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 		return
 	}
 
-	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+	c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
 
 	var portalKey networkid.PortalKey
 	var messIDSender = ""
@@ -150,7 +159,7 @@ func convertMessageEvent(ctx context.Context, portal *bridgev2.Portal, intent br
 	}, nil
 }
 
-func (c *MeshtasticClient) getRemoteGhost(ctx context.Context, ghostID networkid.UserID, requestInfoIfNew bool) (*bridgev2.Ghost, error) {
+func (c *MeshtasticConnector) getRemoteGhost(ctx context.Context, ghostID networkid.UserID, requestInfoIfNew bool) (*bridgev2.Ghost, error) {
 	if !requestInfoIfNew {
 		return c.bridge.GetGhostByID(ctx, ghostID)
 	}
@@ -162,7 +171,7 @@ func (c *MeshtasticClient) getRemoteGhost(ctx context.Context, ghostID networkid
 	return c.bridge.GetGhostByID(ctx, ghostID)
 }
 
-func (c *MeshtasticClient) requestGhostNodeInfo(ghostID networkid.UserID) {
+func (c *MeshtasticConnector) requestGhostNodeInfo(ghostID networkid.UserID) {
 	log := c.log.With().
 		Str("action", "requeset_nodeinfo").
 		Str("ghost_id", string(ghostID)).
@@ -173,8 +182,8 @@ func (c *MeshtasticClient) requestGhostNodeInfo(ghostID networkid.UserID) {
 			Msg("unable to request node info")
 		return
 	}
-	// TODO: call c.sendNodeInfo instead for consistency?
-	err = c.MeshClient.SendNodeInfo(c.main.GetBaseNodeID(), nodeId, c.main.Config.LongName, c.main.Config.ShortName, true)
+
+	err = c.meshClient.SendNodeInfo(c.GetBaseNodeID(), nodeId, c.Config.LongName, c.Config.ShortName, true)
 	if err != nil {
 		log.Err(err).
 			Msg("unable to request node info")
@@ -183,14 +192,14 @@ func (c *MeshtasticClient) requestGhostNodeInfo(ghostID networkid.UserID) {
 	log.Debug().Msg("Sent request for node info")
 }
 
-func (c *MeshtasticClient) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
-	log := c.UserLogin.Log.With().
+func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
+	log := c.log.With().
 		Str("action", "handle_mesh_nodeinfo").
 		Stringer("from_node_id", evt.Envelope.From).
 		Stringer("to_node_id", evt.Envelope.To).
 		Logger()
 	ctx := log.WithContext(context.Background())
-	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(evt.Envelope.From), evt.Envelope.To != c.main.GetBaseNodeID())
+	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(evt.Envelope.From), evt.Envelope.To != c.GetBaseNodeID())
 	if err != nil {
 		log.Err(err).Msg("Failed to get ghost")
 		return
@@ -218,22 +227,22 @@ func (c *MeshtasticClient) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 
 }
 
-func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode meshid.NodeID, wantReply bool) {
-	log := c.UserLogin.Log.With().
+func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantReply bool) {
+	log := c.log.With().
 		Str("action", "send_nodeinfo").
 		Stringer("from_node_id", fromNode).
 		Stringer("to_node_id", toNode).
 		Logger()
-	if !c.main.IsManagedNode(fromNode) {
+	if !c.IsManagedNode(fromNode) {
 		// We have no authority over this node
 		log.Debug().Msg("Ignoring node info request. Not our node")
 		return
 	}
 
 	ctx := log.WithContext(context.Background())
-	if fromNode == c.main.GetBaseNodeID() {
+	if fromNode == c.GetBaseNodeID() {
 		log.Debug().Msg("Sending from base node")
-		err := c.MeshClient.SendNodeInfo(fromNode, toNode, c.main.Config.LongName, c.main.Config.ShortName, wantReply)
+		err := c.meshClient.SendNodeInfo(fromNode, toNode, c.Config.LongName, c.Config.ShortName, wantReply)
 		if err != nil {
 			log.Err(err).Msg("Failed to send node info")
 		}
@@ -247,12 +256,12 @@ func (c *MeshtasticClient) sendNodeInfo(fromNode, toNode meshid.NodeID, wantRepl
 	} else {
 		if meta, ok := ghost.Metadata.(*GhostMetadata); ok && meta.LongName != "" && meta.ShortName != "" {
 			log.Debug().Msg("Sending user configured node info")
-			err = c.MeshClient.SendNodeInfo(fromNode, toNode, meta.LongName, meta.ShortName, wantReply)
+			err = c.meshClient.SendNodeInfo(fromNode, toNode, meta.LongName, meta.ShortName, wantReply)
 		} else {
 			log.Debug().Msg("Sending generated node info")
 			senderStr := fromNode.String()
 			shortName := senderStr[len(senderStr)-4:]
-			err = c.MeshClient.SendNodeInfo(fromNode, toNode, senderStr, shortName, wantReply)
+			err = c.meshClient.SendNodeInfo(fromNode, toNode, senderStr, shortName, wantReply)
 			notifyUser = true
 		}
 		if err != nil {
@@ -279,7 +288,7 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 		return
 	}
 
-	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+	c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
 
 	var portalKey networkid.PortalKey
 	var messIDSender = ""
@@ -313,8 +322,8 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)
 }
 
-func (c *MeshtasticClient) handleMeshWaypoint(evt *mesh.MeshWaypointEvent) {
-	log := c.UserLogin.Log.With().
+func (c *MeshtasticConnector) handleMeshWaypoint(evt *mesh.MeshWaypointEvent) {
+	log := c.log.With().
 		Str("action", "waypoint_update").
 		Stringer("node_id", evt.Envelope.From).
 		Logger()

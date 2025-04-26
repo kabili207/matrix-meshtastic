@@ -3,7 +3,6 @@ package connector
 import (
 	"context"
 	_ "embed"
-	"hash/crc32"
 	"log/slog"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
@@ -13,7 +12,6 @@ import (
 	slogzerolog "github.com/samber/slog-zerolog/v2"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/commands"
-	"maunium.net/go/mautrix/id"
 )
 
 type MeshtasticConnector struct {
@@ -60,14 +58,13 @@ func (c *MeshtasticConnector) GetName() bridgev2.BridgeName {
 	}
 }
 
-// GetNetworkID implements bridgev2.NetworkConnector
 func (c *MeshtasticConnector) GetNetworkID() string {
 	return c.GetName().NetworkID
 }
 
 func (c *MeshtasticConnector) GetBaseNodeID() meshid.NodeID {
 	if c.baseNodeID == 0 {
-		c.baseNodeID = c.MXIDToNodeId(c.bridge.Bot.GetMXID())
+		c.baseNodeID = meshid.MXIDToNodeID(c.bridge.Bot.GetMXID())
 	}
 	return c.baseNodeID
 }
@@ -97,11 +94,6 @@ func (c *MeshtasticConnector) IsManagedNode(nodeID meshid.NodeID) bool {
 	return isManaged
 }
 
-func (c *MeshtasticConnector) MXIDToNodeId(mxid id.UserID) meshid.NodeID {
-	mxidBytes := []byte(mxid.String())
-	return meshid.NodeID(crc32.ChecksumIEEE(mxidBytes))
-}
-
 func (tc *MeshtasticConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilities {
 	return &bridgev2.NetworkGeneralCapabilities{
 		DisappearingMessages: false,
@@ -116,7 +108,6 @@ func (tc *MeshtasticConnector) GetBridgeInfoVersion() (info, capabilities int) {
 	return 1, 1
 }
 
-// Start implements bridgev2.NetworkConnector
 func (c *MeshtasticConnector) Start(ctx context.Context) error {
 	c.log.Info().Msg("MeshtasticConnector Start called")
 	mqttClient := mqtt.NewClient(c.Config.Mqtt.Uri, c.Config.Mqtt.Username, c.Config.Mqtt.Password, c.Config.Mqtt.RootTopic)
@@ -126,13 +117,14 @@ func (c *MeshtasticConnector) Start(ctx context.Context) error {
 
 	c.meshClient = mesh.NewMeshtasticClient(c.GetBaseNodeID(), mqttClient, c.log.With().Logger())
 	c.meshClient.SetIsManagedNodeHandler(c.IsManagedNode)
+	c.meshClient.SetOnDisconnectHandler(c.onMeshDisconnected)
 	c.meshClient.SetOnConnectHandler(c.onMeshConnected)
+	c.meshClient.AddEventHandler(c.handleGlobalMeshEvent)
 	c.meshClient.Connect()
 
 	return nil
 }
 
-// Stop implements bridgev2.NetworkConnector
 func (c *MeshtasticConnector) Stop(ctx context.Context) error {
 	c.log.Info().Msg("MeshtasticConnector Stop called")
 
@@ -157,15 +149,26 @@ func (c *MeshtasticConnector) LoadUserLogin(ctx context.Context, login *bridgev2
 	return nil
 }
 
-func (c *MeshtasticConnector) onMeshConnected(client *mesh.MeshtasticClient) {
-	client.AddChannel(c.Config.PrimaryChannel.Name, c.Config.PrimaryChannel.Key)
+func (c *MeshtasticConnector) onMeshDisconnected() {
+	c.log.Error().Msg("Connection to Meshtastic lost")
+	if c.bgTaskCanceller != nil {
+		c.bgTaskCanceller()
+	}
+}
 
+func (c *MeshtasticConnector) onMeshConnected(isReconnect bool) {
+	c.log.Info().
+		Bool("is_reconnect", isReconnect).
+		Msg("Connection to Meshtastic established")
 	ctx := context.Background()
+	if !isReconnect {
+		c.meshClient.AddChannel(c.Config.PrimaryChannel.Name, c.Config.PrimaryChannel.Key)
 
-	portals, _ := c.bridge.GetAllPortalsWithMXID(ctx)
-	for _, p := range portals {
-		if channelID, channelKey, err := meshid.ParsePortalID(p.ID); err == nil {
-			client.AddChannel(channelID, channelKey)
+		portals, _ := c.bridge.GetAllPortalsWithMXID(ctx)
+		for _, p := range portals {
+			if channelID, channelKey, err := meshid.ParsePortalID(p.ID); err == nil {
+				c.meshClient.AddChannel(channelID, channelKey)
+			}
 		}
 	}
 

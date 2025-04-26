@@ -1,12 +1,15 @@
 package meshid
 
 import (
+	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 	"strings"
 
 	"strconv"
 
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/id"
 )
 
 const (
@@ -26,6 +29,16 @@ func (n NodeID) String() string {
 	return fmt.Sprintf("!%08x", uint32(n))
 }
 
+// ToMacAddress converts this NodeID into a byte representation of
+// an EUI48 mac address.
+// Note: This should only be used with synthetic NodeIDs as the generated
+// address will always be marked as locally administered.
+func (n NodeID) ToMacAddress() []byte {
+	a := make([]byte, 4)
+	binary.BigEndian.PutUint32(a, uint32(n))
+	return []byte{0xA, 0, a[0], a[1], a[2], a[3]}
+}
+
 func ParseNodeID(nodeID string) (NodeID, error) {
 	v, _ := strings.CutPrefix(nodeID, "!")
 	packet64, err := strconv.ParseUint(string(v), 16, 32)
@@ -33,6 +46,11 @@ func ParseNodeID(nodeID string) (NodeID, error) {
 		return NodeID(uint32(0)), err
 	}
 	return NodeID(uint32(packet64)), nil
+}
+
+func MXIDToNodeID(mxid id.UserID) NodeID {
+	mxidBytes := []byte(mxid.String())
+	return NodeID(crc32.ChecksumIEEE(mxidBytes))
 }
 
 func MakeUserID(nodeID NodeID) networkid.UserID {

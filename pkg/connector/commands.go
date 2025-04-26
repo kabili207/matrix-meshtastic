@@ -82,7 +82,7 @@ func fnUpdateNames(ce *commands.Event) {
 	_, _ = longName, shortName
 
 	userMXID := ce.User.MXID
-	nodeID := ce.Bridge.Network.(*MeshtasticConnector).MXIDToNodeId(userMXID)
+	nodeID := meshid.MXIDToNodeID(userMXID)
 
 	if len([]byte(longName)) > 39 {
 		ce.Reply("Long name must be less than 40 bytes")
@@ -112,7 +112,7 @@ func fnNodeInfo(ce *commands.Event) {
 	//}
 
 	userMXID := ce.User.MXID
-	nodeID := ce.Bridge.Network.(*MeshtasticConnector).MXIDToNodeId(userMXID)
+	nodeID := meshid.MXIDToNodeID(userMXID)
 
 	if ghost, err := ce.Bridge.GetGhostByID(ce.Ctx, meshid.MakeUserID(nodeID)); err != nil {
 		ce.Log.Err(err).Msg("Get Matrix user node info")
