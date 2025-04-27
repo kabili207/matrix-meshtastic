@@ -39,7 +39,8 @@ func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortN
 	if from == c.nodeId {
 		role = pb.Config_DeviceConfig_REPEATER
 		// As funny as this is, it crashes version 2.5.16 of the Android app
-		// hw = pb.HardwareModel_RESERVED_FRIED_CHICKEN
+		// https://github.com/meshtastic/Meshtastic-Android/issues/1787
+		//hw = pb.HardwareModel_RESERVED_FRIED_CHICKEN
 	}
 
 	nodeInfo := pb.User{
@@ -49,7 +50,7 @@ func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortN
 		IsLicensed: false,
 		HwModel:    hw,
 		Role:       role,
-		Macaddr:    nodeIdToMacAddr(from),
+		Macaddr:    from.ToMacAddress(),
 	}
 
 	_, err := c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{

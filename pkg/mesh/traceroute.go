@@ -13,6 +13,10 @@ func (c *MeshtasticClient) handleTraceroute(env *pb.ServiceEnvelope, message *pb
 		return
 	}
 
+	if env.Packet.WantAck {
+		c.SendAck(fromNode, toNode, env.Packet.Id)
+	}
+
 	isTowardsDestination := message.RequestId == 0
 
 	c.insertUnknownHops(env.Packet, disco, isTowardsDestination)
@@ -97,7 +101,7 @@ func (c *MeshtasticClient) appendMyIdAndSnr(disco *pb.RouteDiscovery, isTowardsD
 	}
 
 	if snrCount <= len(*route) {
-		s := append(*snrList, 40) // A random value
+		s := append(*snrList, 0) // A random value
 		snrList = &s
 		snrCount += 1
 

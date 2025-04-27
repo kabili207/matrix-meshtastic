@@ -2,6 +2,7 @@ package connector
 
 import (
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
+	"go.mau.fi/util/jsontime"
 	"maunium.net/go/mautrix/bridgev2/database"
 )
 
@@ -14,12 +15,13 @@ type PortalMetadata struct {
 	ChannelKey  *string `json:"channel_key"`
 }
 type GhostMetadata struct {
-	LongName   string `json:"long_name"`
-	ShortName  string `json:"short_name"`
-	UserMXID   string `json:"user_mxid,omitempty"`
-	IsManaged  bool   `json:"is_managed"`
-	PublicKey  []byte `json:"public_key,omitempty"`
-	PrivateKey []byte `json:"private_key,omitempty"`
+	LongName   string         `json:"long_name"`
+	ShortName  string         `json:"short_name"`
+	UserMXID   string         `json:"user_mxid,omitempty"`
+	IsManaged  bool           `json:"is_managed"`
+	LastSeen   *jsontime.Unix `json:"last_seen,omitempty"`
+	PublicKey  []byte         `json:"public_key,omitempty"`
+	PrivateKey []byte         `json:"private_key,omitempty"`
 }
 
 func (tc *MeshtasticConnector) GetDBMetaTypes() database.MetaTypes {

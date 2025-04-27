@@ -2,7 +2,6 @@ package mesh
 
 import (
 	"encoding/base64"
-	"encoding/binary"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -46,13 +45,6 @@ type MeshtasticClient struct {
 	onConnectHandler    MeshConnectedFunc
 	onDisconnectHandler MeshDisconnectedFunc
 	previouslyConnected bool
-}
-
-func nodeIdToMacAddr(nodeId meshid.NodeID) []byte {
-	a := make([]byte, 4)
-	binary.BigEndian.PutUint32(a, uint32(nodeId))
-	// Set first byte to 0xA so it's marked as locally administered
-	return []byte{0xA, 0, a[0], a[1], a[2], a[3]}
 }
 
 func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger zerolog.Logger) *MeshtasticClient {
@@ -179,7 +171,11 @@ func (c *MeshtasticClient) sendProtoMessage(channel string, message proto.Messag
 	if err != nil {
 		return 0, err
 	}
-	return c.sendBytes(channel, rawInfo, info)
+	id, err := c.sendBytes(channel, rawInfo, info)
+	if err == nil {
+		c.printOutgoingPacketDetails(channel, info.From, info.To, id, message)
+	}
+	return id, err
 }
 
 type PacketInfo struct {
@@ -253,11 +249,14 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 	if info.From == c.nodeId {
 		maxHops = 2
 	}
+
 	priority := pb.MeshPacket_DEFAULT
 	if info.WantAck {
 		priority = pb.MeshPacket_RELIABLE
 	} else if info.PortNum == pb.PortNum_ROUTING_APP {
 		priority = pb.MeshPacket_ACK
+	} else if info.PortNum == pb.PortNum_NEIGHBORINFO_APP {
+		priority = pb.MeshPacket_BACKGROUND
 	} else if info.ReplyId != 0 {
 		priority = pb.MeshPacket_RESPONSE
 	}
@@ -305,7 +304,7 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		return packetId, err
 	}
 
-	c.printPacketDetails(&env, &data)
+	//c.printOutgoingPacketDetails(channel, info.From, info.To, pkt.Id, &data)
 
 	reply := mqtt.Message{
 		Topic:   fmt.Sprintf("%s/%s", c.mqttClient.GetFullTopicForChannel(channel), c.nodeId),
@@ -321,7 +320,6 @@ func (c *MeshtasticClient) notifyEvent(event any) {
 }
 
 func (c *MeshtasticClient) printPacketDetails(env *pb.ServiceEnvelope, data any) {
-
 	pkt := env.Packet
 	log := c.log.With().
 		Str("channel", env.ChannelId).
@@ -331,4 +329,15 @@ func (c *MeshtasticClient) printPacketDetails(env *pb.ServiceEnvelope, data any)
 		Interface("payload", data).
 		Logger()
 	log.Debug().Msg("Packet received")
+}
+
+func (c *MeshtasticClient) printOutgoingPacketDetails(channel string, from, to meshid.NodeID, packetID uint32, data any) {
+	log := c.log.With().
+		Str("channel", channel).
+		Stringer("from", from).
+		Stringer("to", to).
+		Uint32("packet_id", packetID).
+		Interface("payload", data).
+		Logger()
+	log.Debug().Msg("Packet broadcast")
 }

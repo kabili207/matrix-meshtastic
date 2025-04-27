@@ -7,6 +7,7 @@ import (
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"github.com/rs/zerolog"
+	"go.mau.fi/util/jsontime"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
@@ -25,8 +26,8 @@ func (c *MeshtasticConnector) handleGlobalMeshEvent(rawEvt any) {
 		c.handleMeshLocation(evt)
 	case *mesh.MeshWaypointEvent:
 		c.handleMeshWaypoint(evt)
-		//case *mesh.MeshEnvelope:
-		//	c.sendMeshPresense(evt)
+	case *mesh.MeshEnvelope:
+		c.handleUnknownPacket(evt)
 	}
 }
 
@@ -43,19 +44,13 @@ func (c *MeshtasticClient) handleMeshEvent(rawEvt any) {
 	}
 }
 
-//unc (c *MeshtasticClient) sendMeshPresense(evt *mesh.MeshEnvelope) {
-//	c.bridge.QueueRemoteEvent(c.UserLogin, &simplevent.Typing{
-//		EventMeta: simplevent.EventMeta{
-//			Type:       bridgev2.RemoteEventTyping,
-//			LogContext: nil,
-//			PortalKey:  c.makePortalKey(evt.ChannelID, evt.ChannelKey),
-//			Sender:     c.makeEventSender(evt.From),
-//			Timestamp:  time.Unix(int64(evt.Timestamp), 0),
-//		},
-//		Timeout: 1 * time.Millisecond,
-//		Type:    bridgev2.TypingTypeText,
-//	})
-//
+func (c *MeshtasticConnector) handleUnknownPacket(evt *mesh.MeshEnvelope) {
+	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
+	userInfo := &bridgev2.UserInfo{
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt),
+	}
+	ghost.UpdateInfo(context.Background(), userInfo)
+}
 
 func (c *MeshtasticConnector) handleMeshLocation(evt *mesh.MeshLocationEvent) {
 	log := c.log.With().
@@ -67,7 +62,11 @@ func (c *MeshtasticConnector) handleMeshLocation(evt *mesh.MeshLocationEvent) {
 		Float32("longitude", evt.Latitude).
 		Msg("Location update received")
 
-	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+	userInfo := &bridgev2.UserInfo{
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt),
+	}
+	ghost.UpdateInfo(context.Background(), userInfo)
 }
 
 func (c *MeshtasticClient) handleMeshChannelJoined(evt *mesh.MeshChannelJoined) {
@@ -107,7 +106,7 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 		return
 	}
 
-	c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+	ghost, _ := c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
 
 	var portalKey networkid.PortalKey
 	var messIDSender = ""
@@ -144,6 +143,10 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 	}
 
 	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)
+	userInfo := &bridgev2.UserInfo{
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt),
+	}
+	ghost.UpdateInfo(context.Background(), userInfo)
 }
 
 func convertMessageEvent(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data *mesh.MeshMessageEvent) (*bridgev2.ConvertedMessage, error) {
@@ -220,7 +223,7 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 		Name:         &evt.LongName,
 		IsBot:        ptr.Ptr(false),
 		Identifiers:  []string{},
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostNames(evt.LongName, evt.ShortName), c.updateGhostPublicKey(evt.PublicKey)),
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostNames(evt.LongName, evt.ShortName), c.updateGhostPublicKey(evt.PublicKey), updateGhostLastSeenAt),
 	}
 	ghost.UpdateInfo(ctx, userInfo)
 	log.Debug().Msg("Synced ghost info")
@@ -275,12 +278,11 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 	}
 }
 
-//func updateGhostLastSyncAt(_ context.Context, ghost *bridgev2.Ghost) bool {
-//	meta := ghost.Metadata.(*waid.GhostMetadata)
-//	forceSave := time.Since(meta.LastSync.Time) > 24*time.Hour
-//	meta.LastSync = jsontime.UnixNow()
-//	return forceSave
-//}
+func updateGhostLastSeenAt(_ context.Context, ghost *bridgev2.Ghost) bool {
+	meta := ghost.Metadata.(*GhostMetadata)
+	meta.LastSeen = ptr.Ptr(jsontime.UnixNow())
+	return true
+}
 
 func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 	meta, ok := c.UserLogin.Metadata.(*UserLoginMetadata)
@@ -288,7 +290,7 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 		return
 	}
 
-	c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+	ghost, _ := c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
 
 	var portalKey networkid.PortalKey
 	var messIDSender = ""
@@ -320,6 +322,10 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 	}
 
 	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)
+	userInfo := &bridgev2.UserInfo{
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt),
+	}
+	ghost.UpdateInfo(context.Background(), userInfo)
 }
 
 func (c *MeshtasticConnector) handleMeshWaypoint(evt *mesh.MeshWaypointEvent) {
@@ -334,8 +340,12 @@ func (c *MeshtasticConnector) handleMeshWaypoint(evt *mesh.MeshWaypointEvent) {
 		Str("description", evt.Description).
 		Str("icon", evt.Icon).
 		Msg("Waypoint received")
-	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
 
+	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+	userInfo := &bridgev2.UserInfo{
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt),
+	}
+	ghost.UpdateInfo(context.Background(), userInfo)
 	// TODO: Save these somewhere and allow other users to retrieve them later?
 	// Possibly drop an m.location event in the default channel?
 }
