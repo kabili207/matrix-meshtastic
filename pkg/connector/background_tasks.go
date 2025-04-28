@@ -25,16 +25,19 @@ func (mc *MeshtasticConnector) RunNodeInfoTask(ctx context.Context) error {
 	go func() {
 		mc.sendPeriodicNodeInfo(ctx)
 		mc.sendPeriodicTelemetry(ctx)
+		tickerTele := time.Tick(rateTelemetry)
+		tickerNodeInfo := time.Tick(rateNodeInfo)
+		tickerNeighbors := time.Tick(rateNeighborInfo)
 		for {
 			select {
 			case <-ctx.Done():
 				mc.log.Err(ctx.Err()).Msg("Stopping node info task")
 				return
-			case <-time.After(rateTelemetry):
+			case <-tickerTele:
 				mc.sendPeriodicTelemetry(ctx)
-			case <-time.After(rateNodeInfo):
+			case <-tickerNodeInfo:
 				mc.sendPeriodicNodeInfo(ctx)
-			case <-time.After(rateNeighborInfo):
+			case <-tickerNeighbors:
 				mc.sendPeriodicNeighborInfo(ctx)
 			}
 		}
