@@ -1,11 +1,10 @@
 package mesh
 
 import (
-	"encoding/base64"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand/v2"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -30,21 +29,24 @@ type MeshEventFunc func(event any)
 type IsManagedFunc func(nodeID meshid.NodeID) bool
 type MeshConnectedFunc func(isReconnect bool)
 type MeshDisconnectedFunc func()
+type KeyRequestFunc func(nodeID meshid.NodeID) (key *string)
 
 type MeshtasticClient struct {
-	startTime           *time.Time
-	nodeId              meshid.NodeID
-	mqttClient          *mqtt.Client
-	channelKeys         map[string][]byte
-	channelKeyStrings   map[string]string
-	currentPacketId     uint32
-	seenNodes           map[meshid.NodeID]MeshNodeInfo
-	eventHandlers       []MeshEventFunc
-	log                 zerolog.Logger
-	managedNodeFunc     IsManagedFunc
-	onConnectHandler    MeshConnectedFunc
-	onDisconnectHandler MeshDisconnectedFunc
-	previouslyConnected bool
+	startTime             *time.Time
+	nodeId                meshid.NodeID
+	mqttClient            *mqtt.Client
+	channelKeys           map[string][]byte
+	channelKeyStrings     map[string]string
+	currentPacketId       uint32
+	seenNodes             map[meshid.NodeID]MeshNodeInfo
+	eventHandlers         []MeshEventFunc
+	log                   zerolog.Logger
+	managedNodeFunc       IsManagedFunc
+	onConnectHandler      MeshConnectedFunc
+	onDisconnectHandler   MeshDisconnectedFunc
+	pubKeyRequestHandler  KeyRequestFunc
+	privKeyRequestHandler KeyRequestFunc
+	previouslyConnected   bool
 }
 
 func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger zerolog.Logger) *MeshtasticClient {
@@ -90,6 +92,7 @@ func (c *MeshtasticClient) onMqttConnected() {
 	c.log.Debug().
 		Str("topic", c.mqttClient.TopicRoot()).
 		Msg("Connected to MQTT broker")
+	c.AddDMHandler()
 	isReconnect := c.previouslyConnected
 	c.previouslyConnected = true
 	if c.onConnectHandler != nil {
@@ -110,8 +113,15 @@ func (c *MeshtasticClient) onMqttConnectionLost(err error) {
 	}
 }
 
+func (c *MeshtasticClient) AddDMHandler() error {
+	if c.mqttClient != nil && c.mqttClient.IsConnected() {
+		c.mqttClient.Handle("PKI", c.handleMQTTMessage)
+	}
+	return nil
+}
+
 func (c *MeshtasticClient) AddChannel(channelName, key string) error {
-	keyBytes, err := c.generateKey(key)
+	keyBytes, err := radio.ParseKey(key)
 	if err != nil {
 		return err
 	}
@@ -121,7 +131,7 @@ func (c *MeshtasticClient) AddChannel(channelName, key string) error {
 		ChannelKey: &key,
 	})
 	if _, ok := c.channelKeys[channelName]; !ok && c.mqttClient != nil && c.mqttClient.IsConnected() {
-		c.mqttClient.Handle(channelName, c.channelHandler(channelName))
+		c.mqttClient.Handle(channelName, c.handleMQTTMessage)
 	}
 	c.channelKeys[channelName] = keyBytes
 	c.channelKeyStrings[channelName] = key
@@ -144,17 +154,12 @@ func (c *MeshtasticClient) SetOnDisconnectHandler(handler MeshDisconnectedFunc) 
 	c.onDisconnectHandler = handler
 }
 
-func (c *MeshtasticClient) generateKey(key string) ([]byte, error) {
-	// Pad the key with '=' characters to ensure it's a valid base64 string
-	padding := (4 - len(key)%4) % 4
-	paddedKey := key + strings.Repeat("=", padding)
+func (c *MeshtasticClient) SetPublicKeyRequestHandler(handler KeyRequestFunc) {
+	c.pubKeyRequestHandler = handler
+}
 
-	// Replace '-' with '+' and '_' with '/'
-	replacedKey := strings.ReplaceAll(paddedKey, "-", "+")
-	replacedKey = strings.ReplaceAll(replacedKey, "_", "/")
-
-	// Decode the base64-encoded key
-	return base64.StdEncoding.DecodeString(replacedKey)
+func (c *MeshtasticClient) SetPrivateKeyRequestHandler(handler KeyRequestFunc) {
+	c.privKeyRequestHandler = handler
 }
 
 type MeshNodeInfo struct {
@@ -178,9 +183,17 @@ func (c *MeshtasticClient) sendProtoMessage(channel string, message proto.Messag
 	return id, err
 }
 
+type EncryptionType int
+
+const (
+	NoEncryption EncryptionType = iota
+	PSKEncryption
+	PKIEncryption
+)
+
 type PacketInfo struct {
 	PortNum            pb.PortNum
-	Encrypted          bool
+	Encrypted          EncryptionType
 	From, To           meshid.NodeID
 	RequestId, ReplyId uint32
 	WantAck            bool
@@ -202,6 +215,10 @@ func (c *MeshtasticClient) generatePacketId() uint32 {
 	return c.currentPacketId
 }
 
+func (c *MeshtasticClient) GenerateKeyPair() (publicKey, privateKey []byte, err error) {
+	return radio.GenerateKeyPair()
+}
+
 func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info PacketInfo) (packetID uint32, err error) {
 
 	if !c.managedNodeFunc(meshid.NodeID(info.From)) {
@@ -209,6 +226,9 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 	}
 
 	bitfield := uint32(BITFIELD_OkToMQTT)
+	if info.WantAck {
+		bitfield |= uint32(BITFIELD_WantResponse)
+	}
 
 	emojiVal := 0
 	if info.Emoji {
@@ -243,6 +263,7 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 
 	key := c.channelKeys[channel]
 
+	// TODO: Set to appropriate value when using PKI
 	channelHash, _ := radio.ChannelHash(channel, key)
 
 	maxHops := 3
@@ -277,12 +298,13 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		Delayed:  pb.MeshPacket_NO_DELAY,
 	}
 
-	if !info.Encrypted {
+	switch info.Encrypted {
+	case NoEncryption:
 		pkt.Channel = 0
 		pkt.PayloadVariant = &pb.MeshPacket_Decoded{
 			Decoded: &data,
 		}
-	} else {
+	case PSKEncryption:
 		encodedBytes, err := radio.XOR(rawData, key, packetId, uint32(info.From))
 		if err != nil {
 			return packetId, err
@@ -290,6 +312,32 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		pkt.PayloadVariant = &pb.MeshPacket_Encrypted{
 			Encrypted: encodedBytes,
 		}
+	case PKIEncryption:
+		priv, err := c.requestKey(info.From, c.privKeyRequestHandler)
+		if err != nil {
+			return packetId, err
+		}
+		pub, err := c.requestKey(info.To, c.pubKeyRequestHandler)
+		if err != nil {
+			return packetId, err
+		}
+		//myPub, err := c.requestKey(info.From, c.pubKeyRequestHandler)
+		//if err != nil {
+		//	return packetId, err
+		//}
+		encodedBytes, err := radio.EncryptCurve25519(rawData, priv, pub, packetId, uint32(info.From))
+		if err != nil {
+			return packetId, err
+		}
+		pkt.PkiEncrypted = true
+		//pkt.PublicKey = myPub
+		pkt.Channel = 0
+		channel = "PKI"
+		pkt.PayloadVariant = &pb.MeshPacket_Encrypted{
+			Encrypted: encodedBytes,
+		}
+	default:
+		return 0, errors.New("unknown encryption method requested")
 	}
 
 	env := pb.ServiceEnvelope{
@@ -306,6 +354,7 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 
 	//c.printOutgoingPacketDetails(channel, info.From, info.To, pkt.Id, &data)
 
+	// TODO: Use PKI topic when required
 	reply := mqtt.Message{
 		Topic:   fmt.Sprintf("%s/%s", c.mqttClient.GetFullTopicForChannel(channel), c.nodeId),
 		Payload: rawEnv,

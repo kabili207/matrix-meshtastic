@@ -74,11 +74,11 @@ func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 }
 
 func (c *MeshtasticConnector) sendPeriodicNodeInfo(ctx context.Context) {
-	c.meshClient.SendNodeInfo(c.GetBaseNodeID(), meshid.BROADCAST_ID, c.Config.LongName, c.Config.ShortName, false)
+	c.meshClient.SendNodeInfo(c.GetBaseNodeID(), meshid.BROADCAST_ID, c.Config.LongName, c.Config.ShortName, false, nil)
 
 	c.doForAllManagedGhosts(ctx, func(nodeID meshid.NodeID, meta *GhostMetadata) {
 		c.log.Debug().Msgf("Broadcasting node info for %s (%s)", nodeID, meta.LongName)
-		c.meshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, meta.LongName, meta.ShortName, false)
+		c.meshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, meta.LongName, meta.ShortName, false, meta.PublicKey)
 	})
 }
 

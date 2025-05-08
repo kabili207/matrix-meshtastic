@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
+	"net"
 	"strings"
 
 	"strconv"
@@ -33,10 +34,10 @@ func (n NodeID) String() string {
 // an EUI48 mac address.
 // Note: This should only be used with synthetic NodeIDs as the generated
 // address will always be marked as locally administered.
-func (n NodeID) ToMacAddress() []byte {
+func (n NodeID) ToMacAddress() net.HardwareAddr {
 	a := make([]byte, 4)
 	binary.BigEndian.PutUint32(a, uint32(n))
-	return []byte{0xA, 0, a[0], a[1], a[2], a[3]}
+	return net.HardwareAddr{0xA, 0, a[0], a[1], a[2], a[3]}
 }
 
 func ParseNodeID(nodeID string) (NodeID, error) {

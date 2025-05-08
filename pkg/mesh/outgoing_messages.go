@@ -8,16 +8,29 @@ import (
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
 )
 
-func (c *MeshtasticClient) SendMessage(from, to meshid.NodeID, channel string, message string) (uint32, error) {
+func (c *MeshtasticClient) SendMessage(from, to meshid.NodeID, channel string, message string, usePKI bool) (uint32, error) {
 	data := []byte(message)
-	return c.sendBytes(channel, data, PacketInfo{PortNum: pb.PortNum_TEXT_MESSAGE_APP, Encrypted: true, From: from, To: to})
-}
-
-func (c *MeshtasticClient) SendReaction(from, to meshid.NodeID, channel string, targetPacketId uint32, emoji string) (packetID uint32, err error) {
-	data := []byte(emoji)
+	encType := PSKEncryption
+	if usePKI {
+		encType = PKIEncryption
+	}
 	return c.sendBytes(channel, data, PacketInfo{
 		PortNum:   pb.PortNum_TEXT_MESSAGE_APP,
-		Encrypted: true,
+		Encrypted: encType,
+		From:      from,
+		To:        to,
+	})
+}
+
+func (c *MeshtasticClient) SendReaction(from, to meshid.NodeID, channel string, targetPacketId uint32, emoji string, usePKI bool) (packetID uint32, err error) {
+	data := []byte(emoji)
+	encType := PSKEncryption
+	if usePKI {
+		encType = PKIEncryption
+	}
+	return c.sendBytes(channel, data, PacketInfo{
+		PortNum:   pb.PortNum_TEXT_MESSAGE_APP,
+		Encrypted: encType,
 		From:      from,
 		To:        to,
 		Emoji:     true,
@@ -26,7 +39,7 @@ func (c *MeshtasticClient) SendReaction(from, to meshid.NodeID, channel string, 
 }
 
 // TODO: Create a user info struct to hold from, long, and short names
-func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortName string, wantAck bool) error {
+func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortName string, wantAck bool, publicKey []byte) error {
 
 	if len([]byte(longName)) > 39 {
 		return errors.New("long name must be less than 40 bytes")
@@ -34,11 +47,14 @@ func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortN
 		return errors.New("short name must be less than 5 bytes")
 	}
 
+	// TODO: Limit how often we send out a NodeInfo as per the official firmware
+	// https://github.com/meshtastic/firmware/blob/master/src/modules/NodeInfoModule.cpp#L72
+
 	role := pb.Config_DeviceConfig_CLIENT
 	hw := pb.HardwareModel_PRIVATE_HW
 	if from == c.nodeId {
 		role = pb.Config_DeviceConfig_REPEATER
-		// As funny as this is, it crashes version 2.5.16 of the Android app
+		// As funny as this is, it crashes the Android app prior to version 2.5.23
 		// https://github.com/meshtastic/Meshtastic-Android/issues/1787
 		//hw = pb.HardwareModel_RESERVED_FRIED_CHICKEN
 	}
@@ -51,13 +67,14 @@ func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortN
 		HwModel:    hw,
 		Role:       role,
 		Macaddr:    from.ToMacAddress(),
+		PublicKey:  publicKey,
 	}
 
 	_, err := c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
 		To:        to,
 		From:      from,
 		PortNum:   pb.PortNum_NODEINFO_APP,
-		Encrypted: true,
+		Encrypted: PSKEncryption,
 		WantAck:   wantAck,
 	})
 	return err
@@ -85,7 +102,12 @@ func (c *MeshtasticClient) SendTelemetry(from, to meshid.NodeID) error {
 		},
 	}
 
-	_, err := c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{PortNum: pb.PortNum_TELEMETRY_APP, Encrypted: true, From: from, To: to})
+	_, err := c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
+		PortNum:   pb.PortNum_TELEMETRY_APP,
+		Encrypted: PSKEncryption,
+		From:      from,
+		To:        to,
+	})
 	return err
 }
 
@@ -119,7 +141,7 @@ func (c *MeshtasticClient) SendNeighborInfo(from meshid.NodeID, neighborIDs []me
 
 	_, err := c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
 		PortNum:   pb.PortNum_NEIGHBORINFO_APP,
-		Encrypted: true,
+		Encrypted: PSKEncryption,
 		From:      from,
 		To:        meshid.BROADCAST_ID_NO_LORA,
 	})
@@ -143,7 +165,12 @@ func (c *MeshtasticClient) SendPosition(from, to meshid.NodeID, latitude, longit
 		PrecisionBits: c.GetPrecisionBits(accuracy),
 	}
 
-	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{PortNum: pb.PortNum_POSITION_APP, Encrypted: true, From: from, To: to})
+	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
+		PortNum:   pb.PortNum_POSITION_APP,
+		Encrypted: PSKEncryption,
+		From:      from,
+		To:        to,
+	})
 }
 
 func (c *MeshtasticClient) GetPrecisionBits(meters *float32) uint32 {
@@ -190,7 +217,7 @@ func (c *MeshtasticClient) SendAck(from, to meshid.NodeID, packetId uint32) (uin
 
 	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
 		PortNum:   pb.PortNum_ROUTING_APP,
-		Encrypted: true,
+		Encrypted: PSKEncryption,
 		From:      from,
 		To:        to,
 		RequestId: packetId,
@@ -207,7 +234,7 @@ func (c *MeshtasticClient) SendNack(from, to meshid.NodeID, packetId uint32) (ui
 
 	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
 		PortNum:   pb.PortNum_ROUTING_APP,
-		Encrypted: true,
+		Encrypted: PSKEncryption,
 		From:      c.nodeId,
 		To:        to,
 		RequestId: packetId,

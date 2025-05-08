@@ -51,6 +51,7 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	channelId := c.main.Config.PrimaryChannel.Name
 	messIDSender := ""
 	targetNode := meshid.BROADCAST_ID
+	usePKI := false
 
 	switch msg.Portal.Portal.RoomType {
 	case database.RoomTypeDefault:
@@ -59,6 +60,9 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	case database.RoomTypeDM:
 		targetNode, _, err = meshid.ParseDMPortalID(msg.Portal.ID)
 		messIDSender = targetNode.String()
+		if pubKey, err := c.main.getGhostPublicKey(ctx, targetNode); err == nil && len(pubKey) > 0 {
+			usePKI = true
+		}
 	default:
 		err = fmt.Errorf("unsupported room type: %s", msg.Portal.Portal.RoomType)
 	}
@@ -74,7 +78,7 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	packetId, err := uint32(0), nil
 	switch msg.Content.MsgType {
 	case event.MsgText:
-		packetId, err = c.MeshClient.SendMessage(fromNode, targetNode, channelId, msg.Content.Body)
+		packetId, err = c.MeshClient.SendMessage(fromNode, targetNode, channelId, msg.Content.Body, usePKI)
 	case event.MsgLocation:
 		matches := geoRegex.FindStringSubmatch(msg.Content.GeoURI)
 		if len(matches) > 0 {
@@ -138,7 +142,11 @@ func (c *MeshtasticClient) postMessageSave(mxid id.UserID, roomId id.RoomID) fun
 				ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostSenderID(mxid), c.main.updateGhostNames(longName, string(shortName))),
 			}
 			ghost.UpdateInfo(ctx, userInfo)
-			c.MeshClient.SendNodeInfo(meshid.MXIDToNodeID(mxid), meshid.BROADCAST_ID, longName, shortName, false)
+			var pubKey []byte
+			if meta, ok := ghost.Metadata.(*GhostMetadata); ok {
+				pubKey = meta.PublicKey
+			}
+			c.MeshClient.SendNodeInfo(meshid.MXIDToNodeID(mxid), meshid.BROADCAST_ID, longName, shortName, false, pubKey)
 		}
 	}
 }
@@ -165,7 +173,11 @@ func (c *MeshtasticClient) UpdateGhostMeshNames(ctx context.Context, userID netw
 	if err != nil {
 		return err
 	}
-	return c.MeshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, longName, shortName, false)
+	var pubKey []byte
+	if meta, ok := ghost.Metadata.(*GhostMetadata); ok {
+		pubKey = meta.PublicKey
+	}
+	return c.MeshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, longName, shortName, false, pubKey)
 }
 
 func (c *MeshtasticClient) updateGhostSenderID(mxid id.UserID) func(context.Context, *bridgev2.Ghost) bool {
@@ -204,7 +216,7 @@ func (c *MeshtasticConnector) updateGhostPublicKey(publicKey []byte) func(contex
 		if !ok {
 			meta = &GhostMetadata{}
 		}
-		forceSave := slices.Equal(meta.PublicKey, publicKey)
+		forceSave := !slices.Equal(meta.PublicKey, publicKey)
 		meta.PublicKey = publicKey
 		return forceSave
 	}
@@ -216,11 +228,60 @@ func (c *MeshtasticConnector) updateGhostPrivateKey(publicKey, privateKey []byte
 		if !ok {
 			meta = &GhostMetadata{}
 		}
-		forceSave := slices.Equal(meta.PrivateKey, privateKey) && slices.Equal(meta.PublicKey, publicKey)
+		forceSave := !slices.Equal(meta.PrivateKey, privateKey) || !slices.Equal(meta.PublicKey, publicKey)
 		meta.PrivateKey = privateKey
 		meta.PublicKey = publicKey
+		if nodeID, err := meshid.ParseUserID(ghost.ID); len(privateKey) > 0 && err == nil {
+			c.sendNodeInfo(nodeID, meshid.BROADCAST_ID, false)
+		}
 		return forceSave
 	}
+}
+
+func (c *MeshtasticConnector) getGhostPublicKey(ctx context.Context, nodeID meshid.NodeID) ([]byte, error) {
+	ghost, err := c.bridge.GetExistingGhostByID(ctx, meshid.MakeUserID(nodeID))
+	if err != nil {
+		return nil, err
+	}
+	if meta, ok := ghost.Metadata.(*GhostMetadata); ok {
+		if meta.IsManaged && len(meta.PrivateKey) == 0 {
+			c.log.Debug().Msg("Generating new keypair")
+			pub, priv, err := c.meshClient.GenerateKeyPair()
+			if err != nil {
+				return nil, err
+			}
+			userInfo := &bridgev2.UserInfo{
+				ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostPrivateKey(pub, priv)),
+			}
+			ghost.UpdateInfo(ctx, userInfo)
+			return pub, nil
+		}
+		return meta.PublicKey, nil
+	}
+	return nil, errors.New("no public key found")
+}
+
+func (c *MeshtasticConnector) getGhostPrivateKey(ctx context.Context, nodeID meshid.NodeID) ([]byte, error) {
+	ghost, err := c.bridge.GetExistingGhostByID(ctx, meshid.MakeUserID(nodeID))
+	if err != nil {
+		return nil, err
+	}
+	if meta, ok := ghost.Metadata.(*GhostMetadata); ok {
+		if meta.IsManaged && len(meta.PrivateKey) == 0 {
+			c.log.Debug().Msg("Generating new keypair")
+			pub, priv, err := c.meshClient.GenerateKeyPair()
+			if err != nil {
+				return nil, err
+			}
+			userInfo := &bridgev2.UserInfo{
+				ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostPrivateKey(pub, priv)),
+			}
+			ghost.UpdateInfo(ctx, userInfo)
+			return priv, nil
+		}
+		return meta.PrivateKey, nil
+	}
+	return nil, errors.New("no private key found")
 }
 
 func (c *MeshtasticClient) PreHandleMatrixReaction(ctx context.Context, msg *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {
@@ -242,12 +303,16 @@ func (c *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridge
 
 	channelID := c.main.Config.PrimaryChannel.Name
 	targetNode := meshid.BROADCAST_ID
+	usePKI := false
 
 	switch msg.Portal.Portal.RoomType {
 	case database.RoomTypeDefault:
 		channelID, _, err = meshid.ParsePortalID(msg.Portal.ID)
 	case database.RoomTypeDM:
 		targetNode, _, err = meshid.ParseDMPortalID(msg.Portal.ID)
+		if pubKey, err := c.main.getGhostPublicKey(ctx, targetNode); err == nil && len(pubKey) > 0 {
+			usePKI = true
+		}
 	default:
 		err = fmt.Errorf("unsupported room type: %s", msg.Portal.Portal.RoomType)
 	}
@@ -260,7 +325,7 @@ func (c *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridge
 	if err != nil {
 		return nil, err
 	}
-	_, err = c.MeshClient.SendReaction(fromNode, targetNode, channelID, packetID, pre.Emoji)
+	_, err = c.MeshClient.SendReaction(fromNode, targetNode, channelID, packetID, pre.Emoji, usePKI)
 	return &database.Reaction{}, err
 }
 

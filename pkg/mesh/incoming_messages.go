@@ -1,6 +1,9 @@
 package mesh
 
 import (
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
 	"fmt"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
@@ -10,33 +13,69 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func (c *MeshtasticClient) channelHandler(channel string) mqtt.HandlerFunc {
-	return func(m mqtt.Message) {
-		log := c.log.With().
-			Str("channel", channel).
-			Bytes("payload", m.Payload).
-			Logger()
-		var env pb.ServiceEnvelope
-		err := proto.Unmarshal(m.Payload, &env)
-		if err != nil {
-			log.Err(err).Msg("failed unmarshalling to service envelope")
-			return
-		}
-
-		if c.managedNodeFunc(meshid.NodeID(env.Packet.From)) {
-			return
-		}
-
-		key := c.channelKeys[channel]
-
-		message, err := radio.TryDecode(env.GetPacket(), key)
-		if err != nil {
-			log.Err(err).Msg("failed to decrypt the message packet")
-		}
-
-		_ = c.processMessage(&env, message)
-		//log.Info(res, "topic", m.Topic, "channel", channel, "portnum", message.Portnum.String())
+func (c *MeshtasticClient) handleMQTTMessage(m mqtt.Message) {
+	log := c.log.With().Logger()
+	var env pb.ServiceEnvelope
+	err := proto.Unmarshal(m.Payload, &env)
+	if err != nil {
+		log.Err(err).Msg("failed unmarshalling to service envelope")
+		return
 	}
+	packet := env.GetPacket()
+
+	log = log.With().
+		Str("channel", env.ChannelId).
+		Stringer("from", meshid.NodeID(packet.From)).
+		Stringer("to", meshid.NodeID(packet.To)).
+		Logger()
+
+	if c.managedNodeFunc(meshid.NodeID(packet.From)) {
+		return
+	}
+
+	key := c.channelKeys[env.ChannelId]
+
+	if packet.PkiEncrypted || (env.ChannelId == "PKI") {
+
+		log.Debug().
+			Str("packet", hex.EncodeToString(packet.GetEncrypted())).
+			Str("pub_key", base64.StdEncoding.EncodeToString(packet.GetPublicKey())).
+			Msg("PKI packet received")
+
+		if len(packet.PublicKey) == 0 {
+			pubKey, err := c.requestKey(meshid.NodeID(packet.From), c.pubKeyRequestHandler)
+			if err != nil {
+				log.Err(err).Msg("Error getting public key. Ignoring DM")
+				return
+			}
+			packet.PublicKey = pubKey
+			packet.PkiEncrypted = true
+		}
+
+		key, err = c.requestKey(meshid.NodeID(packet.To), c.privKeyRequestHandler)
+		if err != nil {
+			log.Err(err).Msg("Error getting private key. Ignoring DM")
+			return
+		}
+	}
+
+	message, err := radio.TryDecode(packet, key)
+	if err != nil {
+		log.Err(err).Msg("failed to decrypt the message packet")
+	}
+
+	_ = c.processMessage(&env, message)
+}
+
+func (c *MeshtasticClient) requestKey(nodeID meshid.NodeID, handler KeyRequestFunc) ([]byte, error) {
+	if handler == nil {
+		return nil, errors.New("no handler for key request")
+	}
+	keyString := handler(nodeID)
+	if keyString == nil || *keyString == "" {
+		return nil, errors.New("no key provided for node")
+	}
+	return radio.ParseKey(*keyString)
 }
 
 func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message *pb.Data) error {

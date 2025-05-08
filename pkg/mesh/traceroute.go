@@ -32,7 +32,7 @@ func (c *MeshtasticClient) handleTraceroute(env *pb.ServiceEnvelope, message *pb
 
 	c.sendProtoMessage(env.ChannelId, disco, PacketInfo{
 		PortNum:   pb.PortNum_TRACEROUTE_APP,
-		Encrypted: true,
+		Encrypted: PSKEncryption,
 		From:      toNode,
 		To:        fromNode,
 		RequestId: message.RequestId,

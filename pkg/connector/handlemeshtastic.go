@@ -176,7 +176,7 @@ func (c *MeshtasticConnector) getRemoteGhost(ctx context.Context, ghostID networ
 
 func (c *MeshtasticConnector) requestGhostNodeInfo(ghostID networkid.UserID) {
 	log := c.log.With().
-		Str("action", "requeset_nodeinfo").
+		Str("action", "request_nodeinfo").
 		Str("ghost_id", string(ghostID)).
 		Logger()
 	nodeId, err := meshid.ParseUserID(ghostID)
@@ -186,7 +186,7 @@ func (c *MeshtasticConnector) requestGhostNodeInfo(ghostID networkid.UserID) {
 		return
 	}
 
-	err = c.meshClient.SendNodeInfo(c.GetBaseNodeID(), nodeId, c.Config.LongName, c.Config.ShortName, true)
+	err = c.meshClient.SendNodeInfo(c.GetBaseNodeID(), nodeId, c.Config.LongName, c.Config.ShortName, true, nil)
 	if err != nil {
 		log.Err(err).
 			Msg("unable to request node info")
@@ -245,7 +245,7 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 	ctx := log.WithContext(context.Background())
 	if fromNode == c.GetBaseNodeID() {
 		log.Debug().Msg("Sending from base node")
-		err := c.meshClient.SendNodeInfo(fromNode, toNode, c.Config.LongName, c.Config.ShortName, wantReply)
+		err := c.meshClient.SendNodeInfo(fromNode, toNode, c.Config.LongName, c.Config.ShortName, wantReply, nil)
 		if err != nil {
 			log.Err(err).Msg("Failed to send node info")
 		}
@@ -259,12 +259,12 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 	} else {
 		if meta, ok := ghost.Metadata.(*GhostMetadata); ok && meta.LongName != "" && meta.ShortName != "" {
 			log.Debug().Msg("Sending user configured node info")
-			err = c.meshClient.SendNodeInfo(fromNode, toNode, meta.LongName, meta.ShortName, wantReply)
+			err = c.meshClient.SendNodeInfo(fromNode, toNode, meta.LongName, meta.ShortName, wantReply, meta.PublicKey)
 		} else {
 			log.Debug().Msg("Sending generated node info")
 			senderStr := fromNode.String()
 			shortName := senderStr[len(senderStr)-4:]
-			err = c.meshClient.SendNodeInfo(fromNode, toNode, senderStr, shortName, wantReply)
+			err = c.meshClient.SendNodeInfo(fromNode, toNode, senderStr, shortName, wantReply, nil)
 			notifyUser = true
 		}
 		if err != nil {

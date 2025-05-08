@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"log/slog"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
@@ -10,6 +11,7 @@ import (
 	"github.com/meshnet-gophers/meshtastic-go/mqtt"
 	"github.com/rs/zerolog"
 	slogzerolog "github.com/samber/slog-zerolog/v2"
+	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/commands"
 )
@@ -43,6 +45,9 @@ func (c *MeshtasticConnector) Init(bridge *bridgev2.Bridge) {
 
 	c.bridge.Commands.(*commands.Processor).AddHandlers(cmdJoinChannel, cmdUpdateNames, cmdNodeInfo)
 
+	slogger := slog.New(slogzerolog.Option{Level: slog.LevelInfo, Logger: &c.log}.NewZerologHandler())
+	slog.SetDefault(slogger)
+
 	c.log.Info().Msg("MeshtasticConnector Init called")
 }
 
@@ -75,7 +80,7 @@ func (c *MeshtasticConnector) IsManagedNode(nodeID meshid.NodeID) bool {
 	}
 	baseNode := c.GetBaseNodeID()
 	if nodeID == baseNode {
-		c.managedNodeCache[baseNode] = true
+		c.managedNodeCache[nodeID] = true
 		return true
 	}
 	ctx := context.Background()
@@ -84,7 +89,7 @@ func (c *MeshtasticConnector) IsManagedNode(nodeID meshid.NodeID) bool {
 		return false
 	}
 	if ghost == nil {
-		c.managedNodeCache[baseNode] = false
+		c.managedNodeCache[nodeID] = false
 		return false
 	}
 	meta, ok := ghost.Metadata.(*GhostMetadata)
@@ -120,6 +125,20 @@ func (c *MeshtasticConnector) Start(ctx context.Context) error {
 	c.meshClient.SetOnDisconnectHandler(c.onMeshDisconnected)
 	c.meshClient.SetOnConnectHandler(c.onMeshConnected)
 	c.meshClient.AddEventHandler(c.handleGlobalMeshEvent)
+	c.meshClient.SetPrivateKeyRequestHandler(func(nodeID meshid.NodeID) (key *string) {
+		raw, err := c.getGhostPrivateKey(context.Background(), nodeID)
+		if err != nil || len(raw) == 0 {
+			return nil
+		}
+		return ptr.Ptr(base64.StdEncoding.EncodeToString(raw))
+	})
+	c.meshClient.SetPublicKeyRequestHandler(func(nodeID meshid.NodeID) (key *string) {
+		raw, err := c.getGhostPublicKey(context.Background(), nodeID)
+		if err != nil || len(raw) == 0 {
+			return nil
+		}
+		return ptr.Ptr(base64.StdEncoding.EncodeToString(raw))
+	})
 	c.meshClient.Connect()
 
 	return nil
