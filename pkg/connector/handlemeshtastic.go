@@ -116,9 +116,15 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 		portalKey = c.makeDMPortalKey(evt.Envelope.From, evt.Envelope.To)
 		messIDSender = evt.Envelope.From.String()
 		roomType = database.RoomTypeDM
+		if evt.Envelope.WantAck {
+			c.MeshClient.SendAck(evt.Envelope.To, evt.Envelope.From, evt.Envelope.PacketId)
+		}
 	} else {
 		portalKey = c.makePortalKey(evt.Envelope.ChannelID, evt.Envelope.ChannelKey)
 		messIDSender = evt.Envelope.ChannelID
+		if evt.Envelope.WantAck {
+			c.MeshClient.SendAck(c.main.GetBaseNodeID(), evt.Envelope.From, evt.Envelope.PacketId)
+		}
 	}
 
 	mess := simplevent.Message[*mesh.MeshMessageEvent]{
@@ -298,9 +304,15 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 	if evt.IsDM {
 		portalKey = c.makeDMPortalKey(evt.Envelope.From, evt.Envelope.To)
 		messIDSender = evt.Envelope.From.String()
+		if evt.Envelope.WantAck {
+			c.MeshClient.SendAck(evt.Envelope.To, evt.Envelope.From, evt.Envelope.PacketId)
+		}
 	} else {
 		portalKey = c.makePortalKey(evt.Envelope.ChannelID, evt.Envelope.ChannelKey)
 		messIDSender = evt.Envelope.ChannelID
+		if evt.Envelope.WantAck {
+			c.MeshClient.SendAck(c.main.GetBaseNodeID(), evt.Envelope.From, evt.Envelope.PacketId)
+		}
 	}
 
 	mess := simplevent.Reaction{

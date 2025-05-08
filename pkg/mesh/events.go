@@ -9,6 +9,7 @@ type MeshEnvelope struct {
 	To         meshid.NodeID
 	Timestamp  uint32
 	PacketId   uint32
+	WantAck    bool
 }
 
 type MeshMessageEvent struct {

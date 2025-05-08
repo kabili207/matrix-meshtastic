@@ -208,7 +208,11 @@ func (c *MeshtasticClient) GetPrecisionBits(meters *float32) uint32 {
 }
 
 func (c *MeshtasticClient) SendAck(from, to meshid.NodeID, packetId uint32) (uint32, error) {
-
+	c.log.Debug().
+		Stringer("from", from).
+		Stringer("to", to).
+		Uint32("packet_id", packetId).
+		Msg("Sending ACK")
 	nodeInfo := pb.Routing{
 		Variant: &pb.Routing_ErrorReason{
 			ErrorReason: pb.Routing_NONE,
@@ -225,6 +229,11 @@ func (c *MeshtasticClient) SendAck(from, to meshid.NodeID, packetId uint32) (uin
 }
 
 func (c *MeshtasticClient) SendNack(from, to meshid.NodeID, packetId uint32) (uint32, error) {
+	c.log.Debug().
+		Stringer("from", from).
+		Stringer("to", to).
+		Uint32("packet_id", packetId).
+		Msg("Sending Negative ACK")
 	// Not all user interfaces show this as an error (notably MUI), but it's better than nothing
 	nodeInfo := pb.Routing{
 		Variant: &pb.Routing_ErrorReason{

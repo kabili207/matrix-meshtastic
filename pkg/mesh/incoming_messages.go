@@ -95,6 +95,7 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 		ChannelID:  envelope.ChannelId,
 		ChannelKey: &chanKey,
 		Timestamp:  envelope.Packet.RxTime,
+		WantAck:    envelope.Packet.WantAck,
 	}
 	var err error
 	var evt any = meshEventEnv
