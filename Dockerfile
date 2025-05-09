@@ -17,9 +17,9 @@ FROM alpine:3.21
 ENV UID=1337 \
     GID=1337
 
-RUN apk add --no-cache ffmpeg su-exec ca-certificates olm bash jq yq curl
+RUN apk add --no-cache su-exec ca-certificates olm bash jq yq curl
 
-COPY --from=builder /build/mautrix-meshtastic /usr/bin/mautrix-meshtastic
+COPY --from=builder /build/meshtastic-bridge /usr/bin/meshtastic-bridge
 COPY --from=builder /build/docker-run.sh /docker-run.sh
 VOLUME /data
 

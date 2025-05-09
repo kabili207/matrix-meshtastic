@@ -16,7 +16,7 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "cmd/mautrix-meshtastic",
+            "program": "cmd/meshtastic-bridge",
             "args": [
                 //"-e" // Generate example config.yaml
 
