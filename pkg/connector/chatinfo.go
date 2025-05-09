@@ -1,6 +1,7 @@
 package connector
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
@@ -12,7 +13,7 @@ import (
 
 func (mc *MeshtasticClient) wrapDMInfo(synthNode, remoteNode meshid.NodeID) *bridgev2.ChatInfo {
 	info := &bridgev2.ChatInfo{
-		Topic: ptr.Ptr("Meshtastic DM"),
+		Topic: ptr.Ptr(fmt.Sprintf("Meshtastic node %s", remoteNode)),
 		Members: &bridgev2.ChatMemberList{
 			IsFull:           true,
 			TotalMemberCount: 2,
@@ -25,6 +26,14 @@ func (mc *MeshtasticClient) wrapDMInfo(synthNode, remoteNode meshid.NodeID) *bri
 		},
 		Type: ptr.Ptr(database.RoomTypeDM),
 	}
+	if ghost, err := mc.bridge.GetExistingGhostByID(context.Background(), meshid.MakeUserID(remoteNode)); ghost != nil && err == nil {
+		if ghost.Name != "" {
+			info.Name = &ghost.Name
+			if meta, ok := ghost.Metadata.(*GhostMetadata); ok && meta.ShortName != "" {
+				info.Name = ptr.Ptr(fmt.Sprintf("%s (%s)", *info.Name, meta.ShortName))
+			}
+		}
+	}
 	return info
 }
 
@@ -32,7 +41,7 @@ func (mc *MeshtasticClient) wrapChatInfo(user *bridgev2.User, channelID, channel
 	nodeID := meshid.MXIDToNodeID(user.MXID)
 	info := &bridgev2.ChatInfo{
 		Name:  ptr.Ptr(channelID),
-		Topic: ptr.Ptr(fmt.Sprintf("ID: %s\nKey: %s", channelID, channelKey)),
+		Topic: ptr.Ptr(fmt.Sprintf("Shared Key: %s", channelKey)),
 		Type:  ptr.Ptr(database.RoomTypeDefault),
 		Members: &bridgev2.ChatMemberList{
 			IsFull: false,
