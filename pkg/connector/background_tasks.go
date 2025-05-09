@@ -90,7 +90,7 @@ func (c *MeshtasticConnector) doForAllManagedGhosts(ctx context.Context, callbac
 	}
 
 	for _, g := range ghosts {
-		if meta, ok := g.Metadata.(*GhostMetadata); ok {
+		if meta, ok := g.Metadata.(*GhostMetadata); ok && meta.UserMXID != "" {
 			waitTime := rand.N(300 * time.Second)
 			go func(delay time.Duration, m *GhostMetadata) {
 				select {
