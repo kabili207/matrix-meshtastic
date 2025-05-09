@@ -243,6 +243,9 @@ func (c *MeshtasticConnector) getGhostPublicKey(ctx context.Context, nodeID mesh
 	if err != nil {
 		return nil, err
 	}
+	if ghost == nil {
+		return nil, errors.New("ghost not found")
+	}
 	if meta, ok := ghost.Metadata.(*GhostMetadata); ok {
 		if meta.IsManaged && len(meta.PrivateKey) == 0 {
 			c.log.Debug().Msg("Generating new keypair")
@@ -265,6 +268,9 @@ func (c *MeshtasticConnector) getGhostPrivateKey(ctx context.Context, nodeID mes
 	ghost, err := c.bridge.GetExistingGhostByID(ctx, meshid.MakeUserID(nodeID))
 	if err != nil {
 		return nil, err
+	}
+	if ghost == nil {
+		return nil, errors.New("ghost not found")
 	}
 	if meta, ok := ghost.Metadata.(*GhostMetadata); ok {
 		if meta.IsManaged && len(meta.PrivateKey) == 0 {
