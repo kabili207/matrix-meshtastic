@@ -42,15 +42,13 @@ func (c *MeshtasticClient) handleMQTTMessage(m mqtt.Message) {
 			Str("pub_key", base64.StdEncoding.EncodeToString(packet.GetPublicKey())).
 			Msg("PKI packet received")
 
-		if len(packet.PublicKey) == 0 {
-			pubKey, err := c.requestKey(meshid.NodeID(packet.From), c.pubKeyRequestHandler)
-			if err != nil {
-				log.Err(err).Msg("Error getting public key. Ignoring DM")
-				return
-			}
-			packet.PublicKey = pubKey
-			packet.PkiEncrypted = true
+		pubKey, err := c.requestKey(meshid.NodeID(packet.From), c.pubKeyRequestHandler)
+		if err != nil {
+			log.Err(err).Msg("Error getting public key. Ignoring DM")
+			return
 		}
+		packet.PublicKey = pubKey
+		packet.PkiEncrypted = true
 
 		key, err = c.requestKey(meshid.NodeID(packet.To), c.privKeyRequestHandler)
 		if err != nil {
