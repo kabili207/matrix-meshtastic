@@ -41,14 +41,16 @@ func (c *MeshtasticClient) SendReaction(from, to meshid.NodeID, channel string, 
 // TODO: Create a user info struct to hold from, long, and short names
 func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortName string, wantAck bool, publicKey []byte) error {
 
+	now := time.Now()
+	if v, ok := c.nodeInfoSendCache[from]; ok && v.After(now.Add(5*time.Minute)) {
+		return errors.New("node info was sent too recently")
+	}
+
 	if len([]byte(longName)) > 39 {
 		return errors.New("long name must be less than 40 bytes")
 	} else if len([]byte(shortName)) > 4 {
 		return errors.New("short name must be less than 5 bytes")
 	}
-
-	// TODO: Limit how often we send out a NodeInfo as per the official firmware
-	// https://github.com/meshtastic/firmware/blob/master/src/modules/NodeInfoModule.cpp#L72
 
 	role := pb.Config_DeviceConfig_CLIENT
 	hw := pb.HardwareModel_PRIVATE_HW
@@ -77,6 +79,9 @@ func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortN
 		Encrypted: PSKEncryption,
 		WantAck:   wantAck,
 	})
+	if err == nil {
+		c.nodeInfoSendCache[from] = now
+	}
 	return err
 }
 

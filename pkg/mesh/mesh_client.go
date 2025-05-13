@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
 	"github.com/meshnet-gophers/meshtastic-go/mqtt"
@@ -23,6 +24,9 @@ const (
 	BITFIELD_WantResponse BitFieldMask = 2
 
 	DefaultChannelName string = "LongFast"
+
+	// The ASCII bell character, used to ping a channel or DM on Meshtastic
+	BellCharacter string = "\x07"
 )
 
 type MeshEventFunc func(event any)
@@ -47,6 +51,8 @@ type MeshtasticClient struct {
 	pubKeyRequestHandler  KeyRequestFunc
 	privKeyRequestHandler KeyRequestFunc
 	previouslyConnected   bool
+	packetCache           *ttlcache.Cache[uint64, any]
+	nodeInfoSendCache     map[meshid.NodeID]time.Time
 }
 
 func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger zerolog.Logger) *MeshtasticClient {
@@ -60,9 +66,15 @@ func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger z
 		channelKeys:       map[string][]byte{},
 		channelKeyStrings: map[string]string{},
 		seenNodes:         map[meshid.NodeID]MeshNodeInfo{},
+		nodeInfoSendCache: map[meshid.NodeID]time.Time{},
 		eventHandlers:     []MeshEventFunc{},
 		log:               logger,
 	}
+
+	mc.packetCache = ttlcache.New(
+		ttlcache.WithTTL[uint64, any](2 * time.Hour),
+	)
+
 	mqttClient.SetOnConnectHandler(mc.onMqttConnected)
 	mqttClient.SetReconnectingHandler(mc.onMqttReconnecting)
 	mqttClient.SetConnectionLostHandler(mc.onMqttConnectionLost)

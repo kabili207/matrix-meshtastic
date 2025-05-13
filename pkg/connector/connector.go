@@ -8,12 +8,14 @@ import (
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
+	"github.com/kabili207/matrix-meshtastic/pkg/msgconv"
 	"github.com/meshnet-gophers/meshtastic-go/mqtt"
 	"github.com/rs/zerolog"
 	slogzerolog "github.com/samber/slog-zerolog/v2"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/commands"
+	"maunium.net/go/mautrix/bridgev2/database"
 )
 
 type MeshtasticConnector struct {
@@ -22,6 +24,7 @@ type MeshtasticConnector struct {
 	Config           Config
 	baseNodeID       meshid.NodeID
 	meshClient       *mesh.MeshtasticClient
+	MsgConv          *msgconv.MessageConverter
 	managedNodeCache map[meshid.NodeID]bool
 	bgTaskCanceller  context.CancelFunc
 }
@@ -38,6 +41,7 @@ func NewMeshtasticConnector(log zerolog.Logger) *MeshtasticConnector {
 
 func (c *MeshtasticConnector) Init(bridge *bridgev2.Bridge) {
 	c.bridge = bridge
+	c.MsgConv = msgconv.New(bridge)
 	c.log = c.bridge.Log
 	if c.managedNodeCache == nil {
 		c.managedNodeCache = map[meshid.NodeID]bool{}
@@ -92,7 +96,7 @@ func (c *MeshtasticConnector) IsManagedNode(nodeID meshid.NodeID) bool {
 		c.managedNodeCache[nodeID] = false
 		return false
 	}
-	meta, ok := ghost.Metadata.(*GhostMetadata)
+	meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
 	isManaged := ok && meta.UserMXID != ""
 	c.managedNodeCache[nodeID] = isManaged
 
@@ -111,6 +115,22 @@ func (tc *MeshtasticConnector) GetBridgeInfoVersion() (info, capabilities int) {
 	// mautrix-go to resend all com.beeper.room_features state events. Similarly, if you modify
 	// something that affects the uk.half-shot.bridge state event, increment the first return value.
 	return 1, 1
+}
+
+func (tc *MeshtasticConnector) GetDBMetaTypes() database.MetaTypes {
+	return database.MetaTypes{
+		Portal: func() any {
+			return &meshid.PortalMetadata{}
+		},
+		Ghost: func() any {
+			return &meshid.GhostMetadata{}
+		},
+		Message:  nil,
+		Reaction: nil,
+		UserLogin: func() any {
+			return &meshid.UserLoginMetadata{}
+		},
+	}
 }
 
 func (c *MeshtasticConnector) Start(ctx context.Context) error {

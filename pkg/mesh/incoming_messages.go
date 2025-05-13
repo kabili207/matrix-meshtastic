@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
 	"github.com/meshnet-gophers/meshtastic-go/mqtt"
@@ -28,6 +29,13 @@ func (c *MeshtasticClient) handleMQTTMessage(m mqtt.Message) {
 		Stringer("from", meshid.NodeID(packet.From)).
 		Stringer("to", meshid.NodeID(packet.To)).
 		Logger()
+
+	cacheKey := (uint64(packet.From) << 32) | uint64(packet.Id)
+	if packet.Id != 0 && c.packetCache.Has(cacheKey) {
+		log.Debug().Msg("Ignoring duplicate packet")
+		return
+	}
+	c.packetCache.Set(cacheKey, nil, ttlcache.DefaultTTL)
 
 	if c.managedNodeFunc(meshid.NodeID(packet.From)) {
 		return

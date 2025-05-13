@@ -2,6 +2,9 @@ package connector
 
 import (
 	"context"
+	"fmt"
+	"html"
+	"strings"
 	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
@@ -101,7 +104,7 @@ func (c *MeshtasticClient) handleMeshChannelJoined(evt *mesh.MeshChannelJoined) 
 }
 
 func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
-	meta, ok := c.UserLogin.Metadata.(*UserLoginMetadata)
+	meta, ok := c.UserLogin.Metadata.(*meshid.UserLoginMetadata)
 	if evt.IsDM && (!ok || meta.NodeID != evt.Envelope.To) {
 		return
 	}
@@ -156,9 +159,14 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 }
 
 func convertMessageEvent(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data *mesh.MeshMessageEvent) (*bridgev2.ConvertedMessage, error) {
+	mess := data.Message
+	formatted := ""
+	mess = strings.ReplaceAll(mess, mesh.BellCharacter, "@room")
+	formatted = strings.ReplaceAll(mess, "@room", fmt.Sprintf(`<a href="%s">%s</a>`, portal.MXID.URI().MatrixToURL(), html.EscapeString("@room")))
 	content := &event.MessageEventContent{
-		MsgType: event.MsgText,
-		Body:    data.Message,
+		MsgType:       event.MsgText,
+		Body:          mess,
+		FormattedBody: formatted,
 	}
 	return &bridgev2.ConvertedMessage{
 		Parts: []*bridgev2.ConvertedMessagePart{{
@@ -263,7 +271,7 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 	if err != nil {
 		log.Err(err).Msg("Failed to get ghost")
 	} else {
-		if meta, ok := ghost.Metadata.(*GhostMetadata); ok && meta.LongName != "" && meta.ShortName != "" {
+		if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok && meta.LongName != "" && meta.ShortName != "" {
 			log.Debug().Msg("Sending user configured node info")
 			err = c.meshClient.SendNodeInfo(fromNode, toNode, meta.LongName, meta.ShortName, wantReply, meta.PublicKey)
 		} else {
@@ -285,13 +293,13 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 }
 
 func updateGhostLastSeenAt(_ context.Context, ghost *bridgev2.Ghost) bool {
-	meta := ghost.Metadata.(*GhostMetadata)
+	meta := ghost.Metadata.(*meshid.GhostMetadata)
 	meta.LastSeen = ptr.Ptr(jsontime.UnixNow())
 	return true
 }
 
 func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
-	meta, ok := c.UserLogin.Metadata.(*UserLoginMetadata)
+	meta, ok := c.UserLogin.Metadata.(*meshid.UserLoginMetadata)
 	if evt.IsDM && (!ok || meta.NodeID != evt.Envelope.To) {
 		return
 	}

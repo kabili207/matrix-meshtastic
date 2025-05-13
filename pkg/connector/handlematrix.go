@@ -78,7 +78,8 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	packetId, err := uint32(0), nil
 	switch msg.Content.MsgType {
 	case event.MsgText:
-		packetId, err = c.MeshClient.SendMessage(fromNode, targetNode, channelId, msg.Content.Body, usePKI)
+		content, _ := c.main.MsgConv.ToMeshtastic(ctx, msg.Event, msg.Content)
+		packetId, err = c.MeshClient.SendMessage(fromNode, targetNode, channelId, content, usePKI)
 	case event.MsgLocation:
 		matches := geoRegex.FindStringSubmatch(msg.Content.GeoURI)
 		if len(matches) > 0 {
@@ -143,7 +144,7 @@ func (c *MeshtasticClient) postMessageSave(mxid id.UserID, roomId id.RoomID) fun
 			}
 			ghost.UpdateInfo(ctx, userInfo)
 			var pubKey []byte
-			if meta, ok := ghost.Metadata.(*GhostMetadata); ok {
+			if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok {
 				pubKey = meta.PublicKey
 			}
 			c.MeshClient.SendNodeInfo(meshid.MXIDToNodeID(mxid), meshid.BROADCAST_ID, longName, shortName, false, pubKey)
@@ -174,7 +175,7 @@ func (c *MeshtasticClient) UpdateGhostMeshNames(ctx context.Context, userID netw
 		return err
 	}
 	var pubKey []byte
-	if meta, ok := ghost.Metadata.(*GhostMetadata); ok {
+	if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok {
 		pubKey = meta.PublicKey
 	}
 	return c.MeshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, longName, shortName, false, pubKey)
@@ -182,10 +183,10 @@ func (c *MeshtasticClient) UpdateGhostMeshNames(ctx context.Context, userID netw
 
 func (c *MeshtasticClient) updateGhostSenderID(mxid id.UserID) func(context.Context, *bridgev2.Ghost) bool {
 	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
-		meta := &GhostMetadata{}
+		meta := &meshid.GhostMetadata{}
 		switch ghost.Metadata.(type) {
-		case *GhostMetadata:
-			meta = ghost.Metadata.(*GhostMetadata)
+		case *meshid.GhostMetadata:
+			meta = ghost.Metadata.(*meshid.GhostMetadata)
 		default:
 			ghost.Metadata = meta
 		}
@@ -199,9 +200,9 @@ func (c *MeshtasticClient) updateGhostSenderID(mxid id.UserID) func(context.Cont
 
 func (c *MeshtasticConnector) updateGhostNames(longName, shortName string) func(context.Context, *bridgev2.Ghost) bool {
 	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
-		meta, ok := ghost.Metadata.(*GhostMetadata)
+		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
 		if !ok {
-			meta = &GhostMetadata{}
+			meta = &meshid.GhostMetadata{}
 		}
 		forceSave := meta.LongName != longName || meta.ShortName != shortName
 		meta.LongName = longName
@@ -212,9 +213,9 @@ func (c *MeshtasticConnector) updateGhostNames(longName, shortName string) func(
 
 func (c *MeshtasticConnector) updateGhostPublicKey(publicKey []byte) func(context.Context, *bridgev2.Ghost) bool {
 	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
-		meta, ok := ghost.Metadata.(*GhostMetadata)
+		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
 		if !ok {
-			meta = &GhostMetadata{}
+			meta = &meshid.GhostMetadata{}
 		}
 		forceSave := !slices.Equal(meta.PublicKey, publicKey)
 		meta.PublicKey = publicKey
@@ -224,9 +225,9 @@ func (c *MeshtasticConnector) updateGhostPublicKey(publicKey []byte) func(contex
 
 func (c *MeshtasticConnector) updateGhostPrivateKey(publicKey, privateKey []byte) func(context.Context, *bridgev2.Ghost) bool {
 	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
-		meta, ok := ghost.Metadata.(*GhostMetadata)
+		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
 		if !ok {
-			meta = &GhostMetadata{}
+			meta = &meshid.GhostMetadata{}
 		}
 		forceSave := !slices.Equal(meta.PrivateKey, privateKey) || !slices.Equal(meta.PublicKey, publicKey)
 		meta.PrivateKey = privateKey
@@ -246,7 +247,7 @@ func (c *MeshtasticConnector) getGhostPublicKey(ctx context.Context, nodeID mesh
 	if ghost == nil {
 		return nil, errors.New("ghost not found")
 	}
-	if meta, ok := ghost.Metadata.(*GhostMetadata); ok {
+	if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok {
 		if meta.IsManaged && len(meta.PrivateKey) == 0 {
 			c.log.Debug().Msg("Generating new keypair")
 			pub, priv, err := c.meshClient.GenerateKeyPair()
@@ -272,7 +273,7 @@ func (c *MeshtasticConnector) getGhostPrivateKey(ctx context.Context, nodeID mes
 	if ghost == nil {
 		return nil, errors.New("ghost not found")
 	}
-	if meta, ok := ghost.Metadata.(*GhostMetadata); ok {
+	if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok {
 		if meta.IsManaged && len(meta.PrivateKey) == 0 {
 			c.log.Debug().Msg("Generating new keypair")
 			pub, priv, err := c.meshClient.GenerateKeyPair()
@@ -352,11 +353,10 @@ func (mc *MeshtasticClient) HandleMatrixMembership(ctx context.Context, msg *bri
 
 	var err error
 	var nodeID meshid.NodeID = 0
-	var ghost *bridgev2.Ghost = nil
 
 	switch target := msg.Target.(type) {
 	case *bridgev2.Ghost:
-		ghost = target
+		_ = target
 		nodeID, err = meshid.ParseUserID(target.ID)
 		if err != nil {
 			return false, fmt.Errorf("failed to parse node ID for user: %w", err)
@@ -376,21 +376,6 @@ func (mc *MeshtasticClient) HandleMatrixMembership(ctx context.Context, msg *bri
 
 	if !mc.main.IsManagedNode(nodeID) {
 		return false, nil
-	}
-
-	meta := &GhostMetadata{}
-	switch ghost.Metadata.(type) {
-	case *GhostMetadata:
-		meta = ghost.Metadata.(*GhostMetadata)
-	default:
-		ghost.Metadata = meta
-	}
-
-	if meta.LongName == "" {
-
-		//longName := TruncateString(u.Displayname, 39)
-		//senderStr := string(m.SenderID)
-		//shortName := senderStr[len(senderStr)-4:]
 	}
 
 	return true, nil

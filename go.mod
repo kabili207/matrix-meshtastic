@@ -48,6 +48,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0 // indirect
 	github.com/charmbracelet/x/ansi v0.9.2 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
+	github.com/jellydator/ttlcache/v3 v3.3.0
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/meshnet-gophers/meshtastic-go v0.1.7

@@ -122,9 +122,9 @@ func fnNodeInfo(ce *commands.Event) {
 		ce.Log.Err(err).Msg("Get Matrix user node info")
 		ce.Reply("Failed to join channel: %v", err)
 	} else {
-		meta, ok := ghost.Metadata.(*GhostMetadata)
+		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
 		if !ok {
-			meta = &GhostMetadata{}
+			meta = &meshid.GhostMetadata{}
 		}
 		longName := meta.LongName
 		shortName := meta.ShortName

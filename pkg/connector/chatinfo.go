@@ -29,7 +29,7 @@ func (mc *MeshtasticClient) wrapDMInfo(synthNode, remoteNode meshid.NodeID) *bri
 	if ghost, err := mc.bridge.GetExistingGhostByID(context.Background(), meshid.MakeUserID(remoteNode)); ghost != nil && err == nil {
 		if ghost.Name != "" {
 			info.Name = &ghost.Name
-			if meta, ok := ghost.Metadata.(*GhostMetadata); ok && meta.ShortName != "" {
+			if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok && meta.ShortName != "" {
 				info.Name = ptr.Ptr(fmt.Sprintf("%s (%s)", *info.Name, meta.ShortName))
 			}
 		}

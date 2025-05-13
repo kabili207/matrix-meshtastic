@@ -122,7 +122,7 @@ func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string
 			Name:     long_name,
 			Username: userNodeId.String(),
 		},
-		Metadata: &UserLoginMetadata{
+		Metadata: &meshid.UserLoginMetadata{
 			NodeID: userNodeId,
 		},
 	}, &bridgev2.NewLoginParams{

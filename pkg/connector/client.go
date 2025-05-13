@@ -74,7 +74,7 @@ func (s *MeshtasticClient) makeDMPortalKey(remote, synth meshid.NodeID) networki
 }
 
 func (s *MeshtasticClient) makeEventSender(sender meshid.NodeID) bridgev2.EventSender {
-	meta := s.UserLogin.Metadata.(*UserLoginMetadata)
+	meta := s.UserLogin.Metadata.(*meshid.UserLoginMetadata)
 	return bridgev2.EventSender{
 		IsFromMe:    meta.NodeID == sender,
 		Sender:      meshid.MakeUserID(sender),
@@ -83,7 +83,7 @@ func (s *MeshtasticClient) makeEventSender(sender meshid.NodeID) bridgev2.EventS
 }
 
 func (tc *MeshtasticClient) IsThisUser(ctx context.Context, userID networkid.UserID) bool {
-	meta := tc.UserLogin.Metadata.(*UserLoginMetadata)
+	meta := tc.UserLogin.Metadata.(*meshid.UserLoginMetadata)
 	return meshid.MakeUserID(meta.NodeID) == userID
 }
 

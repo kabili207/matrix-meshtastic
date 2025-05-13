@@ -1,13 +1,11 @@
-package connector
+package meshid
 
 import (
-	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"go.mau.fi/util/jsontime"
-	"maunium.net/go/mautrix/bridgev2/database"
 )
 
 type UserLoginMetadata struct {
-	NodeID meshid.NodeID `json:"node_id"`
+	NodeID NodeID `json:"node_id"`
 }
 
 type PortalMetadata struct {
@@ -22,20 +20,4 @@ type GhostMetadata struct {
 	LastSeen   *jsontime.Unix `json:"last_seen,omitempty"`
 	PublicKey  []byte         `json:"public_key,omitempty"`
 	PrivateKey []byte         `json:"private_key,omitempty"`
-}
-
-func (tc *MeshtasticConnector) GetDBMetaTypes() database.MetaTypes {
-	return database.MetaTypes{
-		Portal: func() any {
-			return &PortalMetadata{}
-		},
-		Ghost: func() any {
-			return &GhostMetadata{}
-		},
-		Message:  nil,
-		Reaction: nil,
-		UserLogin: func() any {
-			return &UserLoginMetadata{}
-		},
-	}
 }
