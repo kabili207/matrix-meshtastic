@@ -1,6 +1,9 @@
 package mesh
 
 import (
+	"math"
+	"slices"
+
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
 )
@@ -14,28 +17,37 @@ func (c *MeshtasticClient) handleTraceroute(env *pb.ServiceEnvelope, message *pb
 	}
 
 	if env.Packet.WantAck {
-		c.SendAck(fromNode, toNode, env.Packet.Id)
+		c.SendAck(toNode, fromNode, env.Packet.Id)
 	}
 
+	// We never process packets that *aren't* to us, so this should always be true,
+	// but we'll keep the logic as close to the firmware as possible just to be safe
 	isTowardsDestination := message.RequestId == 0
 
 	c.insertUnknownHops(env.Packet, disco, isTowardsDestination)
+
+	// Gateway node isn't always included in the route list, so ensure we add it
+	gatewayNode, err := meshid.ParseNodeID(env.GatewayId)
+	if err == nil && gatewayNode != fromNode && !slices.Contains(disco.Route, uint32(gatewayNode)) {
+		disco.Route = append(disco.RouteBack, uint32(gatewayNode))
+		disco.SnrTowards = append(disco.SnrBack, int32(env.Packet.RxSnr*4))
+	}
+
+	// Add forward and backward info if dest is not the bridge itself
 	if toNode != c.nodeId {
 		env.Packet.HopLimit -= 1
 		c.appendMyIdAndSnr(disco, isTowardsDestination, false)
-	}
-	c.appendMyIdAndSnr(disco, isTowardsDestination, true)
-
-	if toNode != c.nodeId {
 		c.appendMyIdAndSnr(disco, !isTowardsDestination, false)
 	}
+
+	c.appendMyIdAndSnr(disco, isTowardsDestination, true)
 
 	c.sendProtoMessage(env.ChannelId, disco, PacketInfo{
 		PortNum:   pb.PortNum_TRACEROUTE_APP,
 		Encrypted: PSKEncryption,
 		From:      toNode,
 		To:        fromNode,
-		RequestId: message.RequestId,
+		RequestId: env.Packet.Id,
 	})
 }
 
@@ -73,7 +85,7 @@ func (c *MeshtasticClient) insertUnknownHops(packet *pb.MeshPacket, disco *pb.Ro
 		diff = routeCount - snrCount
 		for i := 0; i < diff; i++ {
 			if snrCount < len(*snrList) {
-				s := append(*snrList, -128) // int8 min value
+				s := append(*snrList, math.MinInt8) // Min == SNR Unknown
 				snrList = &s
 				snrCount += 1
 			}
@@ -101,7 +113,7 @@ func (c *MeshtasticClient) appendMyIdAndSnr(disco *pb.RouteDiscovery, isTowardsD
 	}
 
 	if snrCount <= len(*route) {
-		s := append(*snrList, 0) // A random value
+		s := append(*snrList, 0)
 		snrList = &s
 		snrCount += 1
 
