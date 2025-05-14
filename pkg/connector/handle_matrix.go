@@ -15,6 +15,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 )
@@ -199,7 +200,7 @@ func (c *MeshtasticClient) updateGhostSenderID(mxid id.UserID) func(context.Cont
 }
 
 func (c *MeshtasticConnector) updateGhostNames(longName, shortName string) func(context.Context, *bridgev2.Ghost) bool {
-	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
+	return func(ctx context.Context, ghost *bridgev2.Ghost) bool {
 		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
 		if !ok {
 			meta = &meshid.GhostMetadata{}
@@ -207,7 +208,42 @@ func (c *MeshtasticConnector) updateGhostNames(longName, shortName string) func(
 		forceSave := meta.LongName != longName || meta.ShortName != shortName
 		meta.LongName = longName
 		meta.ShortName = shortName
+		if forceSave {
+			go c.updateDMPortalInfo(ctx, ghost)
+		}
+
 		return forceSave
+	}
+}
+
+func (c *MeshtasticConnector) updateDMPortalInfo(ctx context.Context, ghost *bridgev2.Ghost) {
+	portals, err := c.bridge.GetDMPortalsWith(ctx, ghost.ID)
+	if err != nil {
+		c.log.Err(err).Str("node", string(ghost.ID)).Msg("Unable to get DM portals")
+	}
+	for _, p := range portals {
+		ci := &bridgev2.ChatInfo{}
+		c.setDMNames(ci, ghost)
+		loginsInPortal, err := p.Bridge.GetUserLoginsInPortal(ctx, p.PortalKey)
+		if err != nil {
+			c.log.Err(err).Str("node", string(ghost.ID)).Msg("Failed to get user logins in portal")
+		}
+		if len(loginsInPortal) == 0 {
+			c.log.Error().Str("node", string(ghost.ID)).Msg("Failed to get user logins in portal")
+		}
+		loginsInPortal[0].QueueRemoteEvent(&simplevent.ChatInfoChange{
+			EventMeta: simplevent.EventMeta{
+				Type:         bridgev2.RemoteEventChatInfoChange,
+				LogContext:   nil,
+				PortalKey:    p.PortalKey,
+				CreatePortal: false,
+				Timestamp:    time.Now(),
+			},
+			ChatInfoChange: &bridgev2.ChatInfoChange{
+				ChatInfo: ci,
+			},
+		})
+
 	}
 }
 
