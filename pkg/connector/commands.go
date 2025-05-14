@@ -1,6 +1,8 @@
 package connector
 
 import (
+	"encoding/base64"
+	"fmt"
 	"strings"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
@@ -48,7 +50,7 @@ var cmdNodeInfo = &commands.FullHandler{
 func fnJoinChannel(ce *commands.Event) {
 
 	if len(ce.Args) != 2 {
-		ce.Reply("**Usage:** `$cmdprefix <channel name> <channel key>`")
+		ce.Reply("**Usage:** `$cmdprefix join-channel <channel_name> <channel_key>`")
 		return
 	}
 
@@ -72,7 +74,7 @@ func fnJoinChannel(ce *commands.Event) {
 func fnUpdateNames(ce *commands.Event) {
 
 	if len(ce.Args) < 2 {
-		ce.Reply("**Usage:** `$cmdprefix <short name> <long name>`")
+		ce.Reply("**Usage:** `$cmdprefix update-names <short_name> <long_name>`")
 		return
 	}
 
@@ -88,17 +90,12 @@ func fnUpdateNames(ce *commands.Event) {
 		ce.Reply("Long name must be less than 40 bytes")
 	} else if len([]byte(shortName)) > 4 {
 		ce.Reply("Short name must be less than 5 bytes")
-	} else if logins, err := ce.Bridge.GetUserLoginsInPortal(ce.Ctx, ce.Portal.PortalKey); err != nil {
-		ce.Log.Err(err).Msg("Failed to find login for this room")
-		ce.Reply("Failed to update names: %v", err)
-	} else if len(logins) == 0 {
-		ce.Log.Error().Msg("Failed to find login for this room")
-		ce.Reply("Failed to update names: no available logins")
-	} else if err = logins[0].Client.(*MeshtasticClient).
-		UpdateGhostMeshNames(ce.Ctx, meshid.MakeUserID(nodeID), longName, shortName); err != nil {
-		ce.Log.Err(err).Msg("Update user names")
-		ce.Reply("Failed to join channel: %v", err)
-
+	} else if conn, ok := ce.Bridge.Network.(*MeshtasticConnector); !ok {
+		ce.Log.Error().Msg("Unable to cast MeshtasticConnector")
+		ce.Reply("Failed to get Meshtastic connector (how?!)")
+	} else if err := conn.UpdateGhostMeshNames(ce.Ctx, meshid.MakeUserID(nodeID), longName, shortName); err != nil {
+		ce.Log.Err(err).Msg("Unable to update user's mesh names")
+		ce.Reply("Unable to set your names on Meshtastic: %v", err)
 	} else {
 		ce.Reply("Successfully updated Meshtastic names")
 	}
@@ -128,6 +125,7 @@ func fnNodeInfo(ce *commands.Event) {
 		}
 		longName := meta.LongName
 		shortName := meta.ShortName
+		pubKey := "*not generated*"
 		if longName == "" {
 			longName = TruncateString(mxUser.Displayname, 39)
 		}
@@ -135,7 +133,10 @@ func fnNodeInfo(ce *commands.Event) {
 			senderStr := nodeID.String()
 			shortName = senderStr[len(senderStr)-4:]
 		}
-		ce.Reply("Below is your node info on Meshtastic\n**Node ID:** %s\n**Long Name:** %s\n**Short Name:** %s", nodeID, longName, shortName)
+		if len(meta.PublicKey) > 0 {
+			pubKey = fmt.Sprintf("`%s`", base64.StdEncoding.EncodeToString(meta.PublicKey))
+		}
+		ce.Reply("Below is your node info on Meshtastic\n**Node ID:** %s\n**Long Name:** %s\n**Short Name:** %s\n**Public Key:** %s", nodeID, longName, shortName, pubKey)
 	}
 
 }

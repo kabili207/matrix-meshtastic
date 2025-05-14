@@ -77,7 +77,7 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 
 	packetId, err := uint32(0), nil
 	switch msg.Content.MsgType {
-	case event.MsgText:
+	case event.MsgText, event.MsgNotice, event.MsgEmote:
 		content, _ := c.main.MsgConv.ToMeshtastic(ctx, msg.Event, msg.Content)
 		packetId, err = c.MeshClient.SendMessage(fromNode, targetNode, channelId, content, usePKI)
 	case event.MsgLocation:
@@ -152,7 +152,7 @@ func (c *MeshtasticClient) postMessageSave(mxid id.UserID, roomId id.RoomID) fun
 	}
 }
 
-func (c *MeshtasticClient) UpdateGhostMeshNames(ctx context.Context, userID networkid.UserID, longName, shortName string) error {
+func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID networkid.UserID, longName, shortName string) error {
 	if len([]byte(longName)) > 39 {
 		return errors.New("long name must be less than 40 bytes")
 	} else if len([]byte(shortName)) > 4 {
@@ -167,7 +167,7 @@ func (c *MeshtasticClient) UpdateGhostMeshNames(ctx context.Context, userID netw
 		Name:         &longName,
 		IsBot:        ptr.Ptr(false),
 		Identifiers:  []string{},
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.main.updateGhostNames(longName, string(shortName))),
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostNames(longName, string(shortName))),
 	}
 	ghost.UpdateInfo(ctx, userInfo)
 	nodeID, err := meshid.ParseUserID(userID)
@@ -178,7 +178,7 @@ func (c *MeshtasticClient) UpdateGhostMeshNames(ctx context.Context, userID netw
 	if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok {
 		pubKey = meta.PublicKey
 	}
-	return c.MeshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, longName, shortName, false, pubKey)
+	return c.meshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, longName, shortName, false, pubKey)
 }
 
 func (c *MeshtasticClient) updateGhostSenderID(mxid id.UserID) func(context.Context, *bridgev2.Ghost) bool {
