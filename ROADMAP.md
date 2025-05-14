@@ -23,6 +23,10 @@
     * [x] Long Name
     * [x] Short Name
 * Misc
+  * [ ] Connection methods
+    * [x] MQTT
+    * [ ] Mesh over LAN (UDP, v2.6+)
+    * [ ] Phone API (serial/bluetooth/TCP)
   * [x] Automatic portal creation
     * [x] When receiving message
   * [x] Private chat creation by inviting Matrix puppet of Meshtastic user to new room
