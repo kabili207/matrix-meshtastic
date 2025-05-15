@@ -14,6 +14,11 @@ primary_channel:
   name: LongFast
   key: "1PG7OiApB1nwvP+rz05pAQ=="
 
+# The hop limit to apply to outgoing packets.
+# The default for meshtastic devices is 3
+# Must be less than 7
+hop_limit: 3
+
 # Credentials for connecting to the MQTT server
 mqtt:
   server: tcp://example.com:1883

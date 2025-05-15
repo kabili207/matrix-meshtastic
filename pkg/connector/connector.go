@@ -141,10 +141,12 @@ func (c *MeshtasticConnector) Start(ctx context.Context) error {
 	mqttClient.SetLogger(slogger)
 
 	c.meshClient = mesh.NewMeshtasticClient(c.GetBaseNodeID(), mqttClient, c.log.With().Logger())
+	c.meshClient.SetHopLimit(c.Config.HopLimit)
 	c.meshClient.SetIsManagedNodeHandler(c.IsManagedNode)
 	c.meshClient.SetOnDisconnectHandler(c.onMeshDisconnected)
 	c.meshClient.SetOnConnectHandler(c.onMeshConnected)
 	c.meshClient.AddEventHandler(c.handleGlobalMeshEvent)
+	c.meshClient.SetPrimaryChannel(c.Config.PrimaryChannel.Name, c.Config.PrimaryChannel.Key)
 	c.meshClient.SetPrivateKeyRequestHandler(func(nodeID meshid.NodeID) (key *string) {
 		raw, err := c.getGhostPrivateKey(context.Background(), nodeID)
 		if err != nil || len(raw) == 0 {
@@ -201,8 +203,6 @@ func (c *MeshtasticConnector) onMeshConnected(isReconnect bool) {
 		Msg("Connection to Meshtastic established")
 	ctx := context.Background()
 	if !isReconnect {
-		c.meshClient.AddChannel(c.Config.PrimaryChannel.Name, c.Config.PrimaryChannel.Key)
-
 		portals, _ := c.bridge.GetAllPortalsWithMXID(ctx)
 		for _, p := range portals {
 			if channelID, channelKey, err := meshid.ParsePortalID(p.ID); err == nil {

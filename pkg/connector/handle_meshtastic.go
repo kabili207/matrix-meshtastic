@@ -40,8 +40,6 @@ func (c *MeshtasticClient) handleMeshEvent(rawEvt any) {
 	switch evt := rawEvt.(type) {
 	case *mesh.MeshMessageEvent:
 		c.handleMeshMessage(evt)
-	case *mesh.MeshChannelJoined:
-		c.handleMeshChannelJoined(evt)
 	case *mesh.MeshReactionEvent:
 		c.handleMeshReaction(evt)
 	}
@@ -72,7 +70,7 @@ func (c *MeshtasticConnector) handleMeshLocation(evt *mesh.MeshLocationEvent) {
 	ghost.UpdateInfo(context.Background(), userInfo)
 }
 
-func (c *MeshtasticClient) handleMeshChannelJoined(evt *mesh.MeshChannelJoined) {
+func (c *MeshtasticClient) joinChannel(channelName string, channelKey string) error {
 
 	ctx := context.Background()
 	login := c.UserLogin
@@ -80,26 +78,19 @@ func (c *MeshtasticClient) handleMeshChannelJoined(evt *mesh.MeshChannelJoined) 
 	log := c.log.With().Str("user_mxid", string(user.MXID)).Str("login_id", string(login.ID)).Logger()
 	ctx = log.WithContext(ctx)
 
-	portalKey := c.makePortalKey(evt.ChannelID, evt.ChannelKey)
+	portalKey := c.makePortalKey(channelName, &channelKey)
 
 	portal, err := c.bridge.GetPortalByKey(ctx, portalKey)
 	if err != nil {
 		log.Err(err).Str("portal_key", string(portalKey.ID)).Msg("Failed to get portal")
-		return
+		return err
 	}
-
-	//meta := login.Metadata.(*UserLoginMetadata)
 
 	log.Info().Str("portal_id", string(portal.ID)).Msg("Successfully retrieved portal")
 
-	chatInfo := c.wrapChatInfo(user, evt.ChannelID, *evt.ChannelKey)
+	chatInfo := c.wrapChatInfo(user, channelName, channelKey)
 	// Create the room using portal
-	err = portal.CreateMatrixRoom(ctx, user.GetDefaultLogin(), chatInfo)
-	if err != nil {
-		log.Err(err).Msg("Failed to create matrix room")
-		return
-	}
-	log.Info().Msg("Successfully created matrix room")
+	return portal.CreateMatrixRoom(ctx, user.GetDefaultLogin(), chatInfo)
 
 }
 

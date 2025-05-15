@@ -23,10 +23,10 @@ const (
 	BITFIELD_OkToMQTT     BitFieldMask = 1
 	BITFIELD_WantResponse BitFieldMask = 2
 
-	DefaultChannelName string = "LongFast"
-
 	// The ASCII bell character, used to ping a channel or DM on Meshtastic
 	BellCharacter string = "\x07"
+
+	DefaultHopLimit = 3
 )
 
 type MeshEventFunc func(event any)
@@ -36,23 +36,27 @@ type MeshDisconnectedFunc func()
 type KeyRequestFunc func(nodeID meshid.NodeID) (key *string)
 
 type MeshtasticClient struct {
-	startTime             *time.Time
-	nodeId                meshid.NodeID
-	mqttClient            *mqtt.Client
-	channelKeys           map[string][]byte
-	channelKeyStrings     map[string]string
-	currentPacketId       uint32
-	seenNodes             map[meshid.NodeID]MeshNodeInfo
+	log               zerolog.Logger
+	startTime         *time.Time
+	nodeId            meshid.NodeID
+	mqttClient        *mqtt.Client
+	channelKeys       map[string][]byte
+	channelKeyStrings map[string]string
+	currentPacketId   uint32
+	seenNodes         map[meshid.NodeID]MeshNodeInfo
+	primaryChannel    string
+	hopLimit          uint32
+
+	previouslyConnected   bool
 	eventHandlers         []MeshEventFunc
-	log                   zerolog.Logger
 	managedNodeFunc       IsManagedFunc
 	onConnectHandler      MeshConnectedFunc
 	onDisconnectHandler   MeshDisconnectedFunc
 	pubKeyRequestHandler  KeyRequestFunc
 	privKeyRequestHandler KeyRequestFunc
-	previouslyConnected   bool
-	packetCache           *ttlcache.Cache[uint64, any]
-	nodeInfoSendCache     map[meshid.NodeID]time.Time
+
+	packetCache       *ttlcache.Cache[uint64, any]
+	nodeInfoSendCache map[meshid.NodeID]time.Time
 }
 
 func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger zerolog.Logger) *MeshtasticClient {
@@ -69,6 +73,7 @@ func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger z
 		nodeInfoSendCache: map[meshid.NodeID]time.Time{},
 		eventHandlers:     []MeshEventFunc{},
 		log:               logger,
+		hopLimit:          DefaultHopLimit,
 	}
 
 	mc.packetCache = ttlcache.New(
@@ -83,6 +88,9 @@ func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger z
 }
 
 func (c *MeshtasticClient) Connect() error {
+	if c.primaryChannel == "" {
+		return errors.New("primary channel not set")
+	}
 	if !c.mqttClient.IsConnected() {
 		err := c.mqttClient.Connect()
 		if err != nil {
@@ -107,6 +115,11 @@ func (c *MeshtasticClient) onMqttConnected() {
 	c.AddDMHandler()
 	isReconnect := c.previouslyConnected
 	c.previouslyConnected = true
+	if !isReconnect {
+		for name, _ := range c.channelKeys {
+			c.mqttClient.Handle(name, c.handleMQTTMessage)
+		}
+	}
 	if c.onConnectHandler != nil {
 		c.onConnectHandler(isReconnect)
 	}
@@ -152,6 +165,19 @@ func (c *MeshtasticClient) AddChannel(channelName, key string) error {
 
 func (c *MeshtasticClient) AddEventHandler(handler MeshEventFunc) {
 	c.eventHandlers = append(c.eventHandlers, handler)
+}
+
+func (c *MeshtasticClient) SetHopLimit(hopLimit uint32) error {
+	if hopLimit >= meshid.MAX_HOPS {
+		return fmt.Errorf("hop_limit must be less than %d", meshid.MAX_HOPS)
+	}
+	c.hopLimit = hopLimit
+	return nil
+}
+
+func (c *MeshtasticClient) SetPrimaryChannel(channelName, channelKey string) {
+	c.AddChannel(channelName, channelKey)
+	c.primaryChannel = channelName
 }
 
 func (c *MeshtasticClient) SetIsManagedNodeHandler(handler IsManagedFunc) {
@@ -278,9 +304,9 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 	// TODO: Set to appropriate value when using PKI
 	channelHash, _ := radio.ChannelHash(channel, key)
 
-	maxHops := 3
-	if info.From == c.nodeId {
-		maxHops = 2
+	maxHops := c.hopLimit
+	if info.From != c.nodeId {
+		maxHops++
 	}
 
 	priority := pb.MeshPacket_DEFAULT
@@ -298,7 +324,7 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		Id:       packetId,
 		To:       uint32(info.To),
 		From:     uint32(info.From),
-		HopLimit: 2,
+		HopLimit: uint32(c.hopLimit),
 		HopStart: uint32(maxHops),
 		ViaMqtt:  false,
 		WantAck:  info.WantAck,

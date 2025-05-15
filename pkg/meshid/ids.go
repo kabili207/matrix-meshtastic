@@ -22,6 +22,10 @@ const (
 	BROADCAST_ID NodeID = 0xffffffff
 	// Node ID used for broadcasting exclusively over MQTT or BLE mesh
 	BROADCAST_ID_NO_LORA NodeID = 1
+
+	// The maximum allowed number of hops. The bridge consumes one hop
+	// when relaying messages, so the functional limit is one less
+	MAX_HOPS = 7
 )
 
 type NodeID uint32

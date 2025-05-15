@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 
+	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"go.mau.fi/util/configupgrade"
 )
 
@@ -13,6 +14,7 @@ var ExampleConfig string
 type Config struct {
 	LongName       string        `yaml:"long_name"`
 	ShortName      string        `yaml:"short_name"`
+	HopLimit       uint32        `yaml:"hop_limit"`
 	PrimaryChannel ChannelConfig `yaml:"primary_channel"`
 	Mqtt           MqttConfig    `yaml:"mqtt"`
 }
@@ -32,6 +34,7 @@ type ChannelConfig struct {
 func upgradeConfig(helper configupgrade.Helper) {
 	helper.Copy(configupgrade.Str, "long_name")
 	helper.Copy(configupgrade.Str, "short_name")
+	helper.Copy(configupgrade.Int, "hop_limit")
 	helper.Copy(configupgrade.Str, "primary_channel", "name")
 	helper.Copy(configupgrade.Str, "primary_channel", "key")
 	helper.Copy(configupgrade.Str, "mqtt", "server")
@@ -53,6 +56,9 @@ func (c *MeshtasticConnector) ValidateConfig() error {
 	}
 	if len([]byte(c.Config.ShortName)) >= 5 {
 		return fmt.Errorf("short_name must be less than 5 bytes")
+	}
+	if c.Config.HopLimit >= meshid.MAX_HOPS {
+		return fmt.Errorf("hop_limit must be less than %d", meshid.MAX_HOPS)
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/iancoleman/strcase"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
 )
@@ -72,7 +73,7 @@ func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortN
 		PublicKey:  publicKey,
 	}
 
-	_, err := c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
+	_, err := c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
 		To:        to,
 		From:      from,
 		PortNum:   pb.PortNum_NODEINFO_APP,
@@ -107,7 +108,7 @@ func (c *MeshtasticClient) SendTelemetry(from, to meshid.NodeID) error {
 		},
 	}
 
-	_, err := c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
+	_, err := c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
 		PortNum:   pb.PortNum_TELEMETRY_APP,
 		Encrypted: PSKEncryption,
 		From:      from,
@@ -144,7 +145,7 @@ func (c *MeshtasticClient) SendNeighborInfo(from meshid.NodeID, neighborIDs []me
 		NodeBroadcastIntervalSecs: 3600,
 	}
 
-	_, err := c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
+	_, err := c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
 		PortNum:   pb.PortNum_NEIGHBORINFO_APP,
 		Encrypted: PSKEncryption,
 		From:      from,
@@ -170,7 +171,7 @@ func (c *MeshtasticClient) SendPosition(from, to meshid.NodeID, latitude, longit
 		PrecisionBits: c.GetPrecisionBits(accuracy),
 	}
 
-	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
+	return c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
 		PortNum:   pb.PortNum_POSITION_APP,
 		Encrypted: PSKEncryption,
 		From:      from,
@@ -212,6 +213,50 @@ func (c *MeshtasticClient) GetPrecisionBits(meters *float32) uint32 {
 	return val
 }
 
+func (c *MeshtasticClient) SendMapReport(from meshid.NodeID, longName, shortName string, latitude, longitude, accuracy float32, altitude int32, numNodes uint32) (packetID uint32, err error) {
+
+	if latitude == 0 || longitude == 0 {
+		return 0, errors.New("a valid location is required")
+	}
+
+	role := pb.Config_DeviceConfig_CLIENT
+	hw := pb.HardwareModel_PRIVATE_HW
+	if from == c.nodeId {
+		role = pb.Config_DeviceConfig_REPEATER
+	}
+
+	// TODO: Pull from root topic
+	region := pb.Config_LoRaConfig_RegionCode_value["US"]
+	defChanSnake := strcase.ToScreamingSnake(c.primaryChannel)
+	preset := pb.Config_LoRaConfig_ModemPreset_value[defChanSnake]
+	_, hasDefaultChannel := c.channelKeyStrings[c.primaryChannel]
+
+	latI := int32(latitude * 1e7)
+	lonI := int32(longitude * 1e7)
+
+	nodeInfo := pb.MapReport{
+		LongName:            longName,
+		ShortName:           shortName,
+		Role:                role,
+		HwModel:             hw,
+		Region:              pb.Config_LoRaConfig_RegionCode(region),
+		ModemPreset:         pb.Config_LoRaConfig_ModemPreset(preset),
+		HasDefaultChannel:   hasDefaultChannel,
+		LatitudeI:           latI,
+		LongitudeI:          lonI,
+		Altitude:            altitude,
+		PositionPrecision:   c.GetPrecisionBits(&accuracy),
+		NumOnlineLocalNodes: numNodes,
+	}
+
+	return c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
+		PortNum:   pb.PortNum_MAP_REPORT_APP,
+		Encrypted: NoEncryption,
+		From:      from,
+		To:        meshid.BROADCAST_ID,
+	})
+}
+
 func (c *MeshtasticClient) SendAck(from, to meshid.NodeID, packetId uint32) (uint32, error) {
 	c.log.Debug().
 		Stringer("from", from).
@@ -224,7 +269,7 @@ func (c *MeshtasticClient) SendAck(from, to meshid.NodeID, packetId uint32) (uin
 		},
 	}
 
-	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
+	return c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
 		PortNum:   pb.PortNum_ROUTING_APP,
 		Encrypted: PSKEncryption,
 		From:      from,
@@ -246,7 +291,7 @@ func (c *MeshtasticClient) SendNack(from, to meshid.NodeID, packetId uint32) (ui
 		},
 	}
 
-	return c.sendProtoMessage(DefaultChannelName, &nodeInfo, PacketInfo{
+	return c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
 		PortNum:   pb.PortNum_ROUTING_APP,
 		Encrypted: PSKEncryption,
 		From:      c.nodeId,
