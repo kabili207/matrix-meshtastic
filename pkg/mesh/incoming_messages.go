@@ -1,8 +1,6 @@
 package mesh
 
 import (
-	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -45,14 +43,14 @@ func (c *MeshtasticClient) handleMQTTMessage(m mqtt.Message) {
 
 	if packet.PkiEncrypted || (env.ChannelId == "PKI") {
 
-		log.Debug().
-			Str("packet", hex.EncodeToString(packet.GetEncrypted())).
-			Str("pub_key", base64.StdEncoding.EncodeToString(packet.GetPublicKey())).
-			Msg("PKI packet received")
+		if !c.managedNodeFunc(meshid.NodeID(packet.To)) {
+			log.Debug().Msg("Ignoring PKI packet to unmanaged node")
+			return
+		}
 
 		pubKey, err := c.requestKey(meshid.NodeID(packet.From), c.pubKeyRequestHandler)
 		if err != nil {
-			log.Err(err).Msg("Error getting public key. Ignoring DM")
+			log.Err(err).Msg("Error getting public key for sending node")
 			return
 		}
 		packet.PublicKey = pubKey
@@ -60,7 +58,7 @@ func (c *MeshtasticClient) handleMQTTMessage(m mqtt.Message) {
 
 		key, err = c.requestKey(meshid.NodeID(packet.To), c.privKeyRequestHandler)
 		if err != nil {
-			log.Err(err).Msg("Error getting private key. Ignoring DM")
+			log.Err(err).Msg("Error getting private key for receiving node")
 			return
 		}
 	}

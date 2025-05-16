@@ -216,7 +216,6 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 	//c.sendMeshPresense(&evt.Envelope)
 
 	if evt.Envelope.To != meshid.BROADCAST_ID {
-		log.Debug().Msg("Broadcasting node info")
 		c.sendNodeInfo(evt.Envelope.To, meshid.BROADCAST_ID, false)
 	}
 
@@ -231,8 +230,11 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostNames(evt.LongName, evt.ShortName), c.updateGhostPublicKey(evt.PublicKey), updateGhostLastSeenAt),
 	}
 	ghost.UpdateInfo(ctx, userInfo)
-	log.Debug().Msg("Synced ghost info")
-
+	log.
+		Debug().
+		Str("long_name", evt.LongName).
+		Str("short_name", evt.ShortName).
+		Msg("Updated ghost info")
 }
 
 func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantReply bool) {

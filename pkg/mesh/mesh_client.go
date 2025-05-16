@@ -301,7 +301,6 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 
 	key := c.channelKeys[channel]
 
-	// TODO: Set to appropriate value when using PKI
 	channelHash, _ := radio.ChannelHash(channel, key)
 
 	maxHops := c.hopLimit
@@ -359,16 +358,11 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		if err != nil {
 			return packetId, err
 		}
-		//myPub, err := c.requestKey(info.From, c.pubKeyRequestHandler)
-		//if err != nil {
-		//	return packetId, err
-		//}
 		encodedBytes, err := radio.EncryptCurve25519(rawData, priv, pub, packetId, uint32(info.From))
 		if err != nil {
 			return packetId, err
 		}
 		pkt.PkiEncrypted = true
-		//pkt.PublicKey = myPub
 		pkt.Channel = 0
 		channel = "PKI"
 		pkt.PayloadVariant = &pb.MeshPacket_Encrypted{
@@ -392,7 +386,6 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 
 	//c.printOutgoingPacketDetails(channel, info.From, info.To, pkt.Id, &data)
 
-	// TODO: Use PKI topic when required
 	reply := mqtt.Message{
 		Topic:   fmt.Sprintf("%s/%s", c.mqttClient.GetFullTopicForChannel(channel), c.nodeId),
 		Payload: rawEnv,
@@ -415,7 +408,7 @@ func (c *MeshtasticClient) printPacketDetails(env *pb.ServiceEnvelope, data any)
 		Uint32("packet_id", pkt.Id).
 		Interface("payload", data).
 		Logger()
-	log.Debug().Msg("Packet received")
+	log.Trace().Msg("Packet received")
 }
 
 func (c *MeshtasticClient) printOutgoingPacketDetails(channel string, from, to meshid.NodeID, packetID uint32, data any) {
@@ -426,5 +419,5 @@ func (c *MeshtasticClient) printOutgoingPacketDetails(channel string, from, to m
 		Uint32("packet_id", packetID).
 		Interface("payload", data).
 		Logger()
-	log.Debug().Msg("Packet broadcast")
+	log.Trace().Msg("Packet broadcast")
 }
