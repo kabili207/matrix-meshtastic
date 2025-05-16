@@ -243,15 +243,14 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 		Stringer("from_node_id", fromNode).
 		Stringer("to_node_id", toNode).
 		Logger()
+
 	if !c.IsManagedNode(fromNode) {
 		// We have no authority over this node
-		log.Debug().Msg("Ignoring node info request. Not our node")
 		return
 	}
 
 	ctx := log.WithContext(context.Background())
 	if fromNode == c.GetBaseNodeID() {
-		log.Debug().Msg("Sending from base node")
 		err := c.meshClient.SendNodeInfo(fromNode, toNode, c.Config.LongName, c.Config.ShortName, wantReply, nil)
 		if err != nil {
 			log.Err(err).Msg("Failed to send node info")
@@ -265,10 +264,8 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 		log.Err(err).Msg("Failed to get ghost")
 	} else {
 		if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok && meta.LongName != "" && meta.ShortName != "" {
-			log.Debug().Msg("Sending user configured node info")
 			err = c.meshClient.SendNodeInfo(fromNode, toNode, meta.LongName, meta.ShortName, wantReply, meta.PublicKey)
 		} else {
-			log.Debug().Msg("Sending generated node info")
 			senderStr := fromNode.String()
 			shortName := senderStr[len(senderStr)-4:]
 			err = c.meshClient.SendNodeInfo(fromNode, toNode, senderStr, shortName, wantReply, nil)
@@ -280,7 +277,7 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 		}
 	}
 	if notifyUser {
-		log.Debug().Msg("Notifying user...")
+		log.Warn().Msg("User does not have their node names configured")
 		// TODO: Send a notice in the portal informing the user how to set their mesh names
 	}
 }

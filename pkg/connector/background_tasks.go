@@ -48,7 +48,10 @@ func (mc *MeshtasticConnector) RunNodeInfoTask(ctx context.Context) error {
 func (c *MeshtasticConnector) sendPeriodicTelemetry(ctx context.Context) {
 	c.meshClient.SendTelemetry(c.GetBaseNodeID(), meshid.BROADCAST_ID)
 	c.doForAllManagedGhosts(ctx, func(nodeID meshid.NodeID, meta *meshid.GhostMetadata) {
-		c.log.Debug().Msgf("Broadcasting telemetry for %s (%s)", nodeID, meta.LongName)
+		c.log.Info().
+			Str("long_name", meta.LongName).
+			Stringer("node_id", nodeID).
+			Msg("Broadcasting periodic telemetry")
 		c.meshClient.SendTelemetry(nodeID, meshid.BROADCAST_ID)
 	})
 }
@@ -68,7 +71,10 @@ func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 	}
 	c.meshClient.SendNeighborInfo(c.GetBaseNodeID(), nodeIDs)
 	c.doForAllManagedGhosts(ctx, func(nodeID meshid.NodeID, meta *meshid.GhostMetadata) {
-		c.log.Debug().Msgf("Sending neighbor info for %s (%s)", nodeID, meta.LongName)
+		c.log.Info().
+			Str("long_name", meta.LongName).
+			Stringer("node_id", nodeID).
+			Msg("Broadcasting periodic neighbor info")
 		c.meshClient.SendNeighborInfo(nodeID, nodeIDs)
 	})
 }
@@ -77,7 +83,10 @@ func (c *MeshtasticConnector) sendPeriodicNodeInfo(ctx context.Context) {
 	c.meshClient.SendNodeInfo(c.GetBaseNodeID(), meshid.BROADCAST_ID, c.Config.LongName, c.Config.ShortName, false, nil)
 
 	c.doForAllManagedGhosts(ctx, func(nodeID meshid.NodeID, meta *meshid.GhostMetadata) {
-		c.log.Debug().Msgf("Broadcasting node info for %s (%s)", nodeID, meta.LongName)
+		c.log.Info().
+			Str("long_name", meta.LongName).
+			Stringer("node_id", nodeID).
+			Msg("Broadcasting periodic node info")
 		c.meshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, meta.LongName, meta.ShortName, false, meta.PublicKey)
 	})
 }
