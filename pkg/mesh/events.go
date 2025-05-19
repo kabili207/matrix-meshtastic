@@ -2,38 +2,38 @@ package mesh
 
 import "github.com/kabili207/matrix-meshtastic/pkg/meshid"
 
-type MeshEnvelope struct {
-	ChannelID  string
-	ChannelKey *string
-	From       meshid.NodeID
-	To         meshid.NodeID
-	Timestamp  uint32
-	PacketId   uint32
-	WantAck    bool
+type MeshEvent struct {
+	ChannelName string
+	ChannelKey  *string
+	From        meshid.NodeID
+	To          meshid.NodeID
+	Timestamp   uint32
+	PacketId    uint32
+	WantAck     bool
 }
 
 type MeshMessageEvent struct {
-	Envelope MeshEnvelope
-	Message  string
-	IsDM     bool
+	MeshEvent
+	Message string
+	IsDM    bool
 }
 
 type MeshReactionEvent struct {
-	Envelope MeshEnvelope
-	Emoji    string
-	IsDM     bool
-	ReplyId  uint32
+	MeshEvent
+	Emoji   string
+	IsDM    bool
+	ReplyId uint32
 }
 
 type MeshLocationEvent struct {
-	Envelope    MeshEnvelope
+	MeshEvent
 	Location    meshid.GeoURI
 	GroundSpeed *uint32
 	GroundTrack *uint32
 }
 
 type MeshWaypointEvent struct {
-	Envelope    MeshEnvelope
+	MeshEvent
 	Name        string
 	Description string
 	Latitude    float32
@@ -42,7 +42,7 @@ type MeshWaypointEvent struct {
 }
 
 type MeshNodeInfoEvent struct {
-	Envelope  MeshEnvelope
+	MeshEvent
 	ShortName string
 	LongName  string
 	PublicKey []byte

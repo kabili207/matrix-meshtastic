@@ -29,7 +29,7 @@ func (c *MeshtasticConnector) handleGlobalMeshEvent(rawEvt any) {
 		c.handleMeshLocation(evt)
 	case *mesh.MeshWaypointEvent:
 		c.handleMeshWaypoint(evt)
-	case *mesh.MeshEnvelope:
+	case *mesh.MeshEvent:
 		c.handleUnknownPacket(evt)
 	}
 }
@@ -45,7 +45,7 @@ func (c *MeshtasticClient) handleMeshEvent(rawEvt any) {
 	}
 }
 
-func (c *MeshtasticConnector) handleUnknownPacket(evt *mesh.MeshEnvelope) {
+func (c *MeshtasticConnector) handleUnknownPacket(evt *mesh.MeshEvent) {
 	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
 	userInfo := &bridgev2.UserInfo{
 		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt),
@@ -56,14 +56,14 @@ func (c *MeshtasticConnector) handleUnknownPacket(evt *mesh.MeshEnvelope) {
 func (c *MeshtasticConnector) handleMeshLocation(evt *mesh.MeshLocationEvent) {
 	log := c.log.With().
 		Str("action", "location_update").
-		Stringer("node_id", evt.Envelope.From).
+		Stringer("node_id", evt.From).
 		Logger()
 	log.Info().
 		Float32("latitude", evt.Location.Latitude).
 		Float32("longitude", evt.Location.Latitude).
 		Msg("Location update received")
 
-	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
 	userInfo := &bridgev2.UserInfo{
 		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt),
 	}
@@ -96,28 +96,28 @@ func (c *MeshtasticClient) joinChannel(channelName string, channelKey string) er
 
 func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 	meta, ok := c.UserLogin.Metadata.(*meshid.UserLoginMetadata)
-	if evt.IsDM && (!ok || meta.NodeID != evt.Envelope.To) {
+	if evt.IsDM && (!ok || meta.NodeID != evt.To) {
 		return
 	}
 
-	ghost, _ := c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+	ghost, _ := c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
 
 	var portalKey networkid.PortalKey
 	var messIDSender = ""
 
 	roomType := database.RoomTypeDefault
 	if evt.IsDM {
-		portalKey = c.makeDMPortalKey(evt.Envelope.From, evt.Envelope.To)
-		messIDSender = evt.Envelope.From.String()
+		portalKey = c.makeDMPortalKey(evt.From, evt.To)
+		messIDSender = evt.From.String()
 		roomType = database.RoomTypeDM
-		if evt.Envelope.WantAck {
-			c.MeshClient.SendAck(evt.Envelope.To, evt.Envelope.From, evt.Envelope.PacketId)
+		if evt.WantAck {
+			c.MeshClient.SendAck(evt.To, evt.From, evt.PacketId)
 		}
 	} else {
-		portalKey = c.makePortalKey(evt.Envelope.ChannelID, evt.Envelope.ChannelKey)
-		messIDSender = evt.Envelope.ChannelID
-		if evt.Envelope.WantAck {
-			c.MeshClient.SendAck(c.main.GetBaseNodeID(), evt.Envelope.From, evt.Envelope.PacketId)
+		portalKey = c.makePortalKey(evt.ChannelName, evt.ChannelKey)
+		messIDSender = evt.ChannelName
+		if evt.WantAck {
+			c.MeshClient.SendAck(c.main.GetBaseNodeID(), evt.From, evt.PacketId)
 		}
 	}
 
@@ -125,20 +125,20 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 		EventMeta: simplevent.EventMeta{
 			Type: bridgev2.RemoteEventMessage,
 			LogContext: func(c zerolog.Context) zerolog.Context {
-				c = c.Stringer("sender_id", evt.Envelope.From)
-				c = c.Uint32("message_ts", uint32(evt.Envelope.Timestamp))
+				c = c.Stringer("sender_id", evt.From)
+				c = c.Uint32("message_ts", uint32(evt.Timestamp))
 				return c
 			},
 			PortalKey:    portalKey,
 			CreatePortal: true,
-			Sender:       c.makeEventSender(evt.Envelope.From),
-			Timestamp:    time.Unix(int64(evt.Envelope.Timestamp), 0),
+			Sender:       c.makeEventSender(evt.From),
+			Timestamp:    time.Unix(int64(evt.Timestamp), 0),
 			PreHandleFunc: func(ctx context.Context, p *bridgev2.Portal) {
 				p.RoomType = roomType
 			},
 		},
 		Data:               evt,
-		ID:                 meshid.MakeMessageID(messIDSender, evt.Envelope.PacketId),
+		ID:                 meshid.MakeMessageID(messIDSender, evt.PacketId),
 		ConvertMessageFunc: convertMessageEvent,
 	}
 
@@ -203,11 +203,11 @@ func (c *MeshtasticConnector) requestGhostNodeInfo(ghostID networkid.UserID) {
 func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 	log := c.log.With().
 		Str("action", "handle_mesh_nodeinfo").
-		Stringer("from_node_id", evt.Envelope.From).
-		Stringer("to_node_id", evt.Envelope.To).
+		Stringer("from_node_id", evt.From).
+		Stringer("to_node_id", evt.To).
 		Logger()
 	ctx := log.WithContext(context.Background())
-	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(evt.Envelope.From), evt.Envelope.To != c.GetBaseNodeID())
+	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(evt.From), evt.To != c.GetBaseNodeID())
 	if err != nil {
 		log.Err(err).Msg("Failed to get ghost")
 		return
@@ -215,8 +215,8 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 
 	//c.sendMeshPresense(&evt.Envelope)
 
-	if evt.Envelope.To != meshid.BROADCAST_ID {
-		c.sendNodeInfo(evt.Envelope.To, meshid.BROADCAST_ID, false)
+	if evt.To != meshid.BROADCAST_ID {
+		c.sendNodeInfo(evt.To, meshid.BROADCAST_ID, false)
 	}
 
 	if evt.LongName == "" {
@@ -290,26 +290,26 @@ func updateGhostLastSeenAt(_ context.Context, ghost *bridgev2.Ghost) bool {
 
 func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 	meta, ok := c.UserLogin.Metadata.(*meshid.UserLoginMetadata)
-	if evt.IsDM && (!ok || meta.NodeID != evt.Envelope.To) {
+	if evt.IsDM && (!ok || meta.NodeID != evt.To) {
 		return
 	}
 
-	ghost, _ := c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+	ghost, _ := c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
 
 	var portalKey networkid.PortalKey
 	var messIDSender = ""
 
 	if evt.IsDM {
-		portalKey = c.makeDMPortalKey(evt.Envelope.From, evt.Envelope.To)
-		messIDSender = evt.Envelope.From.String()
-		if evt.Envelope.WantAck {
-			c.MeshClient.SendAck(evt.Envelope.To, evt.Envelope.From, evt.Envelope.PacketId)
+		portalKey = c.makeDMPortalKey(evt.From, evt.To)
+		messIDSender = evt.From.String()
+		if evt.WantAck {
+			c.MeshClient.SendAck(evt.To, evt.From, evt.PacketId)
 		}
 	} else {
-		portalKey = c.makePortalKey(evt.Envelope.ChannelID, evt.Envelope.ChannelKey)
-		messIDSender = evt.Envelope.ChannelID
-		if evt.Envelope.WantAck {
-			c.MeshClient.SendAck(c.main.GetBaseNodeID(), evt.Envelope.From, evt.Envelope.PacketId)
+		portalKey = c.makePortalKey(evt.ChannelName, evt.ChannelKey)
+		messIDSender = evt.ChannelName
+		if evt.WantAck {
+			c.MeshClient.SendAck(c.main.GetBaseNodeID(), evt.From, evt.PacketId)
 		}
 	}
 
@@ -317,14 +317,14 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 		EventMeta: simplevent.EventMeta{
 			Type: bridgev2.RemoteEventReaction,
 			LogContext: func(c zerolog.Context) zerolog.Context {
-				c = c.Stringer("sender_id", evt.Envelope.From)
-				c = c.Uint32("message_ts", uint32(evt.Envelope.Timestamp))
+				c = c.Stringer("sender_id", evt.From)
+				c = c.Uint32("message_ts", uint32(evt.Timestamp))
 				return c
 			},
 			PortalKey:    portalKey,
 			CreatePortal: false,
-			Sender:       c.makeEventSender(evt.Envelope.From),
-			Timestamp:    time.Unix(int64(evt.Envelope.Timestamp), 0),
+			Sender:       c.makeEventSender(evt.From),
+			Timestamp:    time.Unix(int64(evt.Timestamp), 0),
 		},
 		EmojiID:       networkid.EmojiID(evt.Emoji),
 		Emoji:         evt.Emoji,
@@ -341,7 +341,7 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 func (c *MeshtasticConnector) handleMeshWaypoint(evt *mesh.MeshWaypointEvent) {
 	log := c.log.With().
 		Str("action", "waypoint_update").
-		Stringer("node_id", evt.Envelope.From).
+		Stringer("node_id", evt.From).
 		Logger()
 	log.Info().
 		Float32("latitude", evt.Latitude).
@@ -351,7 +351,7 @@ func (c *MeshtasticConnector) handleMeshWaypoint(evt *mesh.MeshWaypointEvent) {
 		Str("icon", evt.Icon).
 		Msg("Waypoint received")
 
-	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)
+	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
 	userInfo := &bridgev2.UserInfo{
 		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt),
 	}

@@ -93,14 +93,14 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 	}
 
 	chanKey := c.channelKeyStrings[envelope.ChannelId]
-	meshEventEnv := MeshEnvelope{
-		PacketId:   envelope.Packet.Id,
-		To:         meshid.NodeID(envelope.Packet.To),
-		From:       meshid.NodeID(envelope.Packet.From),
-		ChannelID:  envelope.ChannelId,
-		ChannelKey: &chanKey,
-		Timestamp:  envelope.Packet.RxTime,
-		WantAck:    envelope.Packet.WantAck,
+	meshEventEnv := MeshEvent{
+		PacketId:    envelope.Packet.Id,
+		To:          meshid.NodeID(envelope.Packet.To),
+		From:        meshid.NodeID(envelope.Packet.From),
+		ChannelName: envelope.ChannelId,
+		ChannelKey:  &chanKey,
+		Timestamp:   envelope.Packet.RxTime,
+		WantAck:     envelope.Packet.WantAck,
 	}
 	var err error
 	var evt any = meshEventEnv
@@ -109,23 +109,23 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 	case pb.PortNum_TEXT_MESSAGE_APP:
 		if message.Emoji == 1 {
 			evt = &MeshReactionEvent{
-				Envelope: meshEventEnv,
-				Emoji:    string(message.Payload),
-				IsDM:     envelope.Packet.To != uint32(meshid.BROADCAST_ID),
-				ReplyId:  message.ReplyId,
+				MeshEvent: meshEventEnv,
+				Emoji:     string(message.Payload),
+				IsDM:      envelope.Packet.To != uint32(meshid.BROADCAST_ID),
+				ReplyId:   message.ReplyId,
 			}
 		} else {
 			evt = &MeshMessageEvent{
-				Envelope: meshEventEnv,
-				Message:  string(message.Payload),
-				IsDM:     envelope.Packet.To != uint32(meshid.BROADCAST_ID),
+				MeshEvent: meshEventEnv,
+				Message:   string(message.Payload),
+				IsDM:      envelope.Packet.To != uint32(meshid.BROADCAST_ID),
 			}
 		}
 	case pb.PortNum_NODEINFO_APP:
 		var user = pb.User{}
 		proto.Unmarshal(message.Payload, &user)
 		evt = &MeshNodeInfoEvent{
-			Envelope:  meshEventEnv,
+			MeshEvent: meshEventEnv,
 			LongName:  user.LongName,
 			ShortName: user.ShortName,
 			PublicKey: user.PublicKey,
@@ -140,7 +140,7 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 				alt = ptr.Ptr(float32(*pos.Altitude))
 			}
 			evt = &MeshLocationEvent{
-				Envelope:    meshEventEnv,
+				MeshEvent: meshEventEnv,
 				Location: meshid.GeoURI{
 					Latitude:    float32(*pos.LatitudeI) * 1e-7,
 					Longitude:   float32(*pos.LongitudeI) * 1e-7,
@@ -184,7 +184,7 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 			lat := float32(*w.LatitudeI) * 1e-7
 			lon := float32(*w.LongitudeI) * 1e-7
 			evt = &MeshWaypointEvent{
-				Envelope:    meshEventEnv,
+				MeshEvent:   meshEventEnv,
 				Latitude:    lat,
 				Longitude:   lon,
 				Name:        w.Name,
