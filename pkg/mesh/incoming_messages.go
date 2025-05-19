@@ -13,6 +13,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type NetworkMeshPacket struct {
+	*pb.MeshPacket
+	ChannelName string
+	GatewayNode meshid.NodeID
+}
+
 func (c *MeshtasticClient) handleMQTTMessage(m mqtt.Message) {
 	log := c.log.With().Logger()
 	var env pb.ServiceEnvelope
@@ -22,9 +28,28 @@ func (c *MeshtasticClient) handleMQTTMessage(m mqtt.Message) {
 		return
 	}
 	packet := env.GetPacket()
+	gateway, _ := meshid.ParseNodeID(env.GatewayId)
+	c.handleMeshPacket(NetworkMeshPacket{MeshPacket: packet, GatewayNode: gateway, ChannelName: env.ChannelId})
+}
+func (c *MeshtasticClient) handleUdpMeshPacket(packet *pb.MeshPacket) {
+	c.handleMeshPacket(NetworkMeshPacket{MeshPacket: packet})
+}
 
-	log = log.With().
-		Str("channel", env.ChannelId).
+func (c *MeshtasticClient) getChannelNameFromHash(idHash uint32) string {
+	if idHash == 0 {
+		return "PKI"
+	}
+	for k, v := range c.channelKeys {
+		if hash, err := radio.ChannelHash(k, v); err == nil && hash == idHash {
+			return k
+		}
+	}
+	return ""
+}
+
+func (c *MeshtasticClient) handleMeshPacket(packet NetworkMeshPacket) {
+	log := c.log.With().
+		Uint32("packet_id", packet.Id).
 		Stringer("from", meshid.NodeID(packet.From)).
 		Stringer("to", meshid.NodeID(packet.To)).
 		Logger()
@@ -40,9 +65,15 @@ func (c *MeshtasticClient) handleMQTTMessage(m mqtt.Message) {
 		return
 	}
 
-	key := c.channelKeys[env.ChannelId]
+	packet.ChannelName = c.getChannelNameFromHash(packet.Channel)
+	if packet.ChannelName == "" {
+		log.Debug().Uint32("channel_hash", packet.Channel).Msg("Unknown channel hash. Ignoring message")
+		return
+	}
+	log = log.With().Str("channel", packet.ChannelName).Logger()
+	key := c.channelKeys[packet.ChannelName]
 
-	if packet.PkiEncrypted || (env.ChannelId == "PKI") {
+	if packet.PkiEncrypted || packet.ChannelName == "PKI" || (packet.Channel == 0 && packet.To > 0 && meshid.NodeID(packet.To) != meshid.BROADCAST_ID) {
 
 		if !c.managedNodeFunc(meshid.NodeID(packet.To)) {
 			log.Debug().Msg("Ignoring PKI packet to unmanaged node")
@@ -64,12 +95,12 @@ func (c *MeshtasticClient) handleMQTTMessage(m mqtt.Message) {
 		}
 	}
 
-	message, err := radio.TryDecode(packet, key)
+	message, err := radio.TryDecode(packet.MeshPacket, key)
 	if err != nil {
 		log.Err(err).Msg("failed to decrypt the message packet")
 	}
 
-	_ = c.processMessage(&env, message)
+	_ = c.processMessage(packet, message)
 }
 
 func (c *MeshtasticClient) requestKey(nodeID meshid.NodeID, handler KeyRequestFunc) ([]byte, error) {
@@ -83,24 +114,24 @@ func (c *MeshtasticClient) requestKey(nodeID meshid.NodeID, handler KeyRequestFu
 	return radio.ParseKey(*keyString)
 }
 
-func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message *pb.Data) error {
+func (c *MeshtasticClient) processMessage(packet NetworkMeshPacket, message *pb.Data) error {
 	if message == nil {
 		return fmt.Errorf("nil message")
 	}
 
-	if c.managedNodeFunc(meshid.NodeID(envelope.Packet.From)) {
+	if c.managedNodeFunc(meshid.NodeID(packet.From)) {
 		return nil
 	}
 
-	chanKey := c.channelKeyStrings[envelope.ChannelId]
+	chanKey := c.channelKeyStrings[packet.ChannelName]
 	meshEventEnv := MeshEvent{
-		PacketId:    envelope.Packet.Id,
-		To:          meshid.NodeID(envelope.Packet.To),
-		From:        meshid.NodeID(envelope.Packet.From),
-		ChannelName: envelope.ChannelId,
+		PacketId:    packet.Id,
+		To:          meshid.NodeID(packet.To),
+		From:        meshid.NodeID(packet.From),
+		ChannelName: packet.ChannelName,
 		ChannelKey:  &chanKey,
-		Timestamp:   envelope.Packet.RxTime,
-		WantAck:     envelope.Packet.WantAck,
+		Timestamp:   packet.RxTime,
+		WantAck:     packet.WantAck,
 	}
 	var err error
 	var evt any = meshEventEnv
@@ -111,14 +142,14 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 			evt = &MeshReactionEvent{
 				MeshEvent: meshEventEnv,
 				Emoji:     string(message.Payload),
-				IsDM:      envelope.Packet.To != uint32(meshid.BROADCAST_ID),
+				IsDM:      packet.To != uint32(meshid.BROADCAST_ID),
 				ReplyId:   message.ReplyId,
 			}
 		} else {
 			evt = &MeshMessageEvent{
 				MeshEvent: meshEventEnv,
 				Message:   string(message.Payload),
-				IsDM:      envelope.Packet.To != uint32(meshid.BROADCAST_ID),
+				IsDM:      packet.To != uint32(meshid.BROADCAST_ID),
 			}
 		}
 	case pb.PortNum_NODEINFO_APP:
@@ -155,18 +186,18 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 	case pb.PortNum_TRACEROUTE_APP:
 		var r = pb.RouteDiscovery{}
 		err = proto.Unmarshal(message.Payload, &r)
-		c.printPacketDetails(envelope, &r)
-		c.handleTraceroute(envelope, message, &r)
+		c.printPacketDetails(packet, &r)
+		c.handleTraceroute(packet, &r)
 
 	case pb.PortNum_TELEMETRY_APP:
 		var t = pb.Telemetry{}
 		err = proto.Unmarshal(message.Payload, &t)
-		c.printPacketDetails(envelope, &t)
+		c.printPacketDetails(packet, &t)
 
 	case pb.PortNum_NEIGHBORINFO_APP:
 		var n = pb.NeighborInfo{}
 		err = proto.Unmarshal(message.Payload, &n)
-		c.printPacketDetails(envelope, &n)
+		c.printPacketDetails(packet, &n)
 
 	case pb.PortNum_STORE_FORWARD_APP:
 		var s = pb.StoreAndForward{}
@@ -175,7 +206,7 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 	case pb.PortNum_ROUTING_APP:
 		var r = pb.Routing{}
 		err = proto.Unmarshal(message.Payload, &r)
-		c.printPacketDetails(envelope, &r)
+		c.printPacketDetails(packet, &r)
 
 	case pb.PortNum_WAYPOINT_APP:
 		var w = pb.Waypoint{}

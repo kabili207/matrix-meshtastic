@@ -8,46 +8,45 @@ import (
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
 )
 
-func (c *MeshtasticClient) handleTraceroute(env *pb.ServiceEnvelope, message *pb.Data, disco *pb.RouteDiscovery) {
+func (c *MeshtasticClient) handleTraceroute(packet NetworkMeshPacket, disco *pb.RouteDiscovery) {
 
-	toNode := meshid.NodeID(env.Packet.To)
-	fromNode := meshid.NodeID(env.Packet.From)
+	toNode := meshid.NodeID(packet.To)
+	fromNode := meshid.NodeID(packet.From)
 	if !c.managedNodeFunc(toNode) {
 		return
 	}
 
-	if env.Packet.WantAck {
-		c.SendAck(toNode, fromNode, env.Packet.Id)
+	if packet.WantAck {
+		c.SendAck(toNode, fromNode, packet.Id)
 	}
 
-	// We never process packets that *aren't* to us, so this should always be true,
-	// but we'll keep the logic as close to the firmware as possible just to be safe
-	isTowardsDestination := message.RequestId == 0
+	// We never process packets that *aren't* to us, so this is always be true,
+	// In the firmware, this would check if message.RequestId == 0
+	isTowardsDestination := true
 
-	c.insertUnknownHops(env.Packet, disco, isTowardsDestination)
+	c.insertUnknownHops(packet.MeshPacket, disco, isTowardsDestination)
 
 	// Gateway node isn't always included in the route list, so ensure we add it
-	gatewayNode, err := meshid.ParseNodeID(env.GatewayId)
-	if err == nil && gatewayNode != fromNode && !slices.Contains(disco.Route, uint32(gatewayNode)) {
-		disco.Route = append(disco.RouteBack, uint32(gatewayNode))
-		disco.SnrTowards = append(disco.SnrBack, int32(env.Packet.RxSnr*4))
+	if packet.GatewayNode != 0 && packet.GatewayNode != fromNode && !slices.Contains(disco.Route, uint32(packet.GatewayNode)) {
+		disco.Route = append(disco.RouteBack, uint32(packet.GatewayNode))
+		disco.SnrTowards = append(disco.SnrBack, int32(packet.RxSnr*4))
 	}
 
 	// Add forward and backward info if dest is not the bridge itself
 	if toNode != c.nodeId {
-		env.Packet.HopLimit -= 1
+		packet.HopLimit -= 1
 		c.appendMyIdAndSnr(disco, isTowardsDestination, false)
 		c.appendMyIdAndSnr(disco, !isTowardsDestination, false)
 	}
 
 	c.appendMyIdAndSnr(disco, isTowardsDestination, true)
 
-	c.sendProtoMessage(env.ChannelId, disco, PacketInfo{
+	c.sendProtoMessage(packet.ChannelName, disco, PacketInfo{
 		PortNum:   pb.PortNum_TRACEROUTE_APP,
 		Encrypted: PSKEncryption,
 		From:      toNode,
 		To:        fromNode,
-		RequestId: env.Packet.Id,
+		RequestId: packet.Id,
 	})
 }
 

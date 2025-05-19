@@ -7,7 +7,6 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/charmbracelet/log"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
@@ -57,6 +56,7 @@ type MeshtasticClient struct {
 
 	packetCache       *ttlcache.Cache[uint64, any]
 	nodeInfoSendCache map[meshid.NodeID]time.Time
+	updHandler        *UDPMessageHandler
 }
 
 func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger zerolog.Logger) *MeshtasticClient {
@@ -74,6 +74,7 @@ func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger z
 		eventHandlers:     []MeshEventFunc{},
 		log:               logger,
 		hopLimit:          DefaultHopLimit,
+		updHandler:        NewUDPMessageHandler(logger),
 	}
 
 	mc.packetCache = ttlcache.New(
@@ -83,6 +84,8 @@ func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger z
 	mqttClient.SetOnConnectHandler(mc.onMqttConnected)
 	mqttClient.SetReconnectingHandler(mc.onMqttReconnecting)
 	mqttClient.SetConnectionLostHandler(mc.onMqttConnectionLost)
+
+	mc.updHandler.SetHandler(mc.handleUdpMeshPacket)
 
 	return mc
 }
@@ -97,10 +100,12 @@ func (c *MeshtasticClient) Connect() error {
 			return err
 		}
 	}
+	c.updHandler.Start()
 	return nil
 }
 
 func (c *MeshtasticClient) Disconnect() {
+	c.updHandler.Stop()
 	c.mqttClient.Disconnect()
 }
 
@@ -257,6 +262,39 @@ func (c *MeshtasticClient) GenerateKeyPair() (publicKey, privateKey []byte, err 
 	return radio.GenerateKeyPair()
 }
 
+func getLastByteOfNodeNum(num uint32) uint8 {
+	lastByte := uint8(num & 0xFF)
+	if lastByte != 0 {
+		return lastByte
+	}
+	return 0xFF
+}
+
+func getPriority(data *pb.Data, wantAck bool) pb.MeshPacket_Priority {
+	// We might receive acks from other nodes (and since generated remotely, they won't have priority assigned.  Check for that
+	// and fix it
+	priority := pb.MeshPacket_DEFAULT
+	// if a reliable message give a bit higher default priority
+	if wantAck {
+		priority = pb.MeshPacket_RELIABLE
+	}
+	// if acks/naks give very high priority
+	if data.Portnum == pb.PortNum_ROUTING_APP {
+		priority = pb.MeshPacket_ACK
+		// if text or admin, give high priority
+	} else if data.Portnum == pb.PortNum_TEXT_MESSAGE_APP ||
+		data.Portnum == pb.PortNum_ADMIN_APP {
+		priority = pb.MeshPacket_HIGH
+		// if it is a response, give higher priority to let it arrive early and stop the request being relayed
+	} else if data.RequestId != 0 {
+		priority = pb.MeshPacket_RESPONSE
+		// Also if we want a response, give a bit higher priority
+	} else if data.WantResponse {
+		priority = pb.MeshPacket_RELIABLE
+	}
+	return priority
+}
+
 func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info PacketInfo) (packetID uint32, err error) {
 
 	if !c.managedNodeFunc(meshid.NodeID(info.From)) {
@@ -308,31 +346,21 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		maxHops++
 	}
 
-	priority := pb.MeshPacket_DEFAULT
-	if info.WantAck {
-		priority = pb.MeshPacket_RELIABLE
-	} else if info.PortNum == pb.PortNum_ROUTING_APP {
-		priority = pb.MeshPacket_ACK
-	} else if info.PortNum == pb.PortNum_NEIGHBORINFO_APP {
-		priority = pb.MeshPacket_BACKGROUND
-	} else if info.ReplyId != 0 {
-		priority = pb.MeshPacket_RESPONSE
-	}
-
 	pkt := pb.MeshPacket{
-		Id:       packetId,
-		To:       uint32(info.To),
-		From:     uint32(info.From),
-		HopLimit: uint32(c.hopLimit),
-		HopStart: uint32(maxHops),
-		ViaMqtt:  false,
-		WantAck:  info.WantAck,
-		RxTime:   time,
-		RxSnr:    0,
-		RxRssi:   0,
-		Channel:  channelHash,
-		Priority: priority,
-		Delayed:  pb.MeshPacket_NO_DELAY,
+		Id:        packetId,
+		To:        uint32(info.To),
+		From:      uint32(info.From),
+		HopLimit:  uint32(c.hopLimit),
+		HopStart:  uint32(maxHops),
+		ViaMqtt:   false,
+		WantAck:   info.WantAck,
+		RxTime:    time,
+		RxSnr:     0,
+		RxRssi:    0,
+		Channel:   channelHash,
+		Priority:  getPriority(&data, info.WantAck),
+		Delayed:   pb.MeshPacket_NO_DELAY,
+		RelayNode: uint32(getLastByteOfNodeNum(uint32(c.nodeId))),
 	}
 
 	switch info.Encrypted {
@@ -372,6 +400,10 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		return 0, errors.New("unknown encryption method requested")
 	}
 
+	if err = c.updHandler.SendMulticast(&pkt); err != nil {
+		c.log.Warn().AnErr("error", err).Msg("Error sending via UDP")
+	}
+
 	env := pb.ServiceEnvelope{
 		ChannelId: channel,
 		GatewayId: c.nodeId.String(),
@@ -379,8 +411,8 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 	}
 
 	rawEnv, err := proto.Marshal(&env)
+
 	if err != nil {
-		log.Error(err)
 		return packetId, err
 	}
 
@@ -390,7 +422,9 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		Topic:   fmt.Sprintf("%s/%s", c.mqttClient.GetFullTopicForChannel(channel), c.nodeId),
 		Payload: rawEnv,
 	}
+
 	return packetId, c.mqttClient.Publish(&reply)
+
 }
 
 func (c *MeshtasticClient) notifyEvent(event any) {
@@ -399,10 +433,9 @@ func (c *MeshtasticClient) notifyEvent(event any) {
 	}
 }
 
-func (c *MeshtasticClient) printPacketDetails(env *pb.ServiceEnvelope, data any) {
-	pkt := env.Packet
+func (c *MeshtasticClient) printPacketDetails(pkt NetworkMeshPacket, data any) {
 	log := c.log.With().
-		Str("channel", env.ChannelId).
+		Str("channel", pkt.ChannelName).
 		Stringer("from", meshid.NodeID(pkt.From)).
 		Stringer("to", meshid.NodeID(pkt.To)).
 		Uint32("packet_id", pkt.Id).
