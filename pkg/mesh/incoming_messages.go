@@ -9,6 +9,7 @@ import (
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
 	"github.com/meshnet-gophers/meshtastic-go/mqtt"
 	"github.com/meshnet-gophers/meshtastic-go/radio"
+	"go.mau.fi/util/ptr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -134,13 +135,18 @@ func (c *MeshtasticClient) processMessage(envelope *pb.ServiceEnvelope, message 
 		var pos = pb.Position{}
 		proto.Unmarshal(message.Payload, &pos)
 		if pos.LatitudeI != nil && pos.LongitudeI != nil {
-			lat := float32(*pos.LatitudeI) * 1e-7
-			lon := float32(*pos.LongitudeI) * 1e-7
+			alt := (*float32)(nil)
+			if pos.Altitude != nil {
+				alt = ptr.Ptr(float32(*pos.Altitude))
+			}
 			evt = &MeshLocationEvent{
 				Envelope:    meshEventEnv,
-				Latitude:    lat,
-				Longitude:   lon,
-				Altitude:    pos.Altitude,
+				Location: meshid.GeoURI{
+					Latitude:    float32(*pos.LatitudeI) * 1e-7,
+					Longitude:   float32(*pos.LongitudeI) * 1e-7,
+					Altitude:    alt,
+					Uncertainty: ptr.Ptr(float32(GetPositionPrecisionInMeters(pos.PrecisionBits))),
+				},
 				GroundSpeed: pos.GroundSpeed,
 				GroundTrack: pos.GroundTrack,
 			}

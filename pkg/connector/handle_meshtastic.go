@@ -59,8 +59,8 @@ func (c *MeshtasticConnector) handleMeshLocation(evt *mesh.MeshLocationEvent) {
 		Stringer("node_id", evt.Envelope.From).
 		Logger()
 	log.Info().
-		Float32("latitude", evt.Latitude).
-		Float32("longitude", evt.Latitude).
+		Float32("latitude", evt.Location.Latitude).
+		Float32("longitude", evt.Location.Latitude).
 		Msg("Location update received")
 
 	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.Envelope.From), true)

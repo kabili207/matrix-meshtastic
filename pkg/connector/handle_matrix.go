@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
-	"strconv"
 	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
@@ -18,10 +16,6 @@ import (
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
-)
-
-var (
-	geoRegex = regexp.MustCompile(`^geo:(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+).*(?:;u=(\d+(?:\.\d+)?)).*`)
 )
 
 var _ bridgev2.ReactionHandlingNetworkAPI = (*MeshtasticClient)(nil)
@@ -76,20 +70,19 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 		return nil, nil
 	}
 
-	packetId, err := uint32(0), nil
+	packetId, geouri, err := uint32(0), (*meshid.GeoURI)(nil), nil
 	switch msg.Content.MsgType {
 	case event.MsgText, event.MsgNotice, event.MsgEmote:
 		content, _ := c.main.MsgConv.ToMeshtastic(ctx, msg.Event, msg.Content)
 		packetId, err = c.MeshClient.SendMessage(fromNode, targetNode, channelId, content, usePKI)
 	case event.MsgLocation:
-		matches := geoRegex.FindStringSubmatch(msg.Content.GeoURI)
-		if len(matches) > 0 {
-			lat, _ := strconv.ParseFloat(matches[1], 32)
-			lon, _ := strconv.ParseFloat(matches[2], 32)
-			acc, _ := strconv.ParseFloat(matches[3], 32)
-			ts := time.UnixMilli(msg.Event.Timestamp)
-			packetId, err = c.MeshClient.SendPosition(fromNode, targetNode, float32(lat), float32(lon), ptr.Ptr(float32(acc)), &ts)
+		geouri, err = meshid.ParseGeoURI(msg.Content.GeoURI)
+		if err != nil {
+			return nil, bridgev2.WrapErrorInStatus(err).WithErrorAsMessage().WithIsCertain(true).WithSendNotice(true)
 		}
+		ts := time.UnixMilli(msg.Event.Timestamp)
+		packetId, err = c.MeshClient.SendPosition(fromNode, targetNode, *geouri, &ts)
+
 	default:
 		return nil, bridgev2.ErrUnsupportedMessageType
 	}

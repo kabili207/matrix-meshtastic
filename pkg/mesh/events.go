@@ -27,9 +27,7 @@ type MeshReactionEvent struct {
 
 type MeshLocationEvent struct {
 	Envelope    MeshEnvelope
-	Latitude    float32
-	Longitude   float32
-	Altitude    *int32
+	Location    meshid.GeoURI
 	GroundSpeed *uint32
 	GroundTrack *uint32
 }

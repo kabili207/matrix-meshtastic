@@ -155,20 +155,20 @@ func (c *MeshtasticClient) SendNeighborInfo(from meshid.NodeID, neighborIDs []me
 }
 
 // TODO: Create a user info struct to hold from, long, and short names
-func (c *MeshtasticClient) SendPosition(from, to meshid.NodeID, latitude, longitude float32, accuracy *float32, timestamp *time.Time) (packetID uint32, err error) {
+func (c *MeshtasticClient) SendPosition(from, to meshid.NodeID, location meshid.GeoURI, timestamp *time.Time) (packetID uint32, err error) {
 
 	now := time.Now()
 	now = now.UTC()
 
-	latI := int32(latitude * 1e7)
-	lonI := int32(longitude * 1e7)
+	latI := int32(location.Latitude * 1e7)
+	lonI := int32(location.Longitude * 1e7)
 
 	nodeInfo := pb.Position{
 		Time:          uint32(now.Unix()),
 		Timestamp:     uint32(timestamp.Unix()),
 		LatitudeI:     &latI,
 		LongitudeI:    &lonI,
-		PrecisionBits: c.GetPrecisionBits(accuracy),
+		PrecisionBits: c.GetPrecisionBits(location.Uncertainty),
 	}
 
 	return c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
@@ -211,6 +211,37 @@ func (c *MeshtasticClient) GetPrecisionBits(meters *float32) uint32 {
 	}
 
 	return val
+}
+
+func GetPositionPrecisionInMeters(positionPrecision uint32) uint32 {
+	precisionMap := map[uint32]uint32{
+		2:  5976446,
+		3:  2988223,
+		4:  1494111,
+		5:  747055,
+		6:  373527,
+		7:  186763,
+		8:  93381,
+		9:  46690,
+		10: 23345,
+		11: 11672, // Android LOW_PRECISION
+		12: 5836,
+		13: 2918,
+		14: 1459,
+		15: 729,
+		16: 364, // Android MED_PRECISION
+		17: 182,
+		18: 91,
+		19: 45,
+		20: 22,
+		21: 11,
+		22: 5,
+		23: 2,
+		24: 1,
+		32: 0, // Android HIGH_PRECISION
+	}
+
+	return precisionMap[positionPrecision]
 }
 
 func (c *MeshtasticClient) SendMapReport(from meshid.NodeID, longName, shortName string, latitude, longitude, accuracy float32, altitude int32, numNodes uint32) (packetID uint32, err error) {
