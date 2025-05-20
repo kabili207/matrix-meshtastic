@@ -152,12 +152,20 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 func convertMessageEvent(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data *mesh.MeshMessageEvent) (*bridgev2.ConvertedMessage, error) {
 	mess := data.Message
 	formatted := ""
-	mess = strings.ReplaceAll(mess, mesh.BellCharacter, "@room")
-	formatted = strings.ReplaceAll(mess, "@room", fmt.Sprintf(`<a href="%s">%s</a>`, portal.MXID.URI().MatrixToURL(), html.EscapeString("@room")))
+	mentions := &event.Mentions{}
+	if strings.Contains(mess, mesh.BellCharacter) {
+		mess = strings.ReplaceAll(mess, mesh.BellCharacter, portal.MXID.String())
+		formatted = strings.ReplaceAll(data.Message, mesh.BellCharacter, fmt.Sprintf(`<a href="%s">%s</a>`, portal.MXID.URI().MatrixToURL(), html.EscapeString("@room")))
+		mentions.Room = true
+	}
 	content := &event.MessageEventContent{
 		MsgType:       event.MsgText,
 		Body:          mess,
 		FormattedBody: formatted,
+		Mentions:      mentions,
+	}
+	if formatted != "" {
+		content.Format = event.FormatHTML
 	}
 	return &bridgev2.ConvertedMessage{
 		Parts: []*bridgev2.ConvertedMessagePart{{
