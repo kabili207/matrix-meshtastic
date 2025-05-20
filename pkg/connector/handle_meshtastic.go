@@ -139,7 +139,7 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 		},
 		Data:               evt,
 		ID:                 meshid.MakeMessageID(messIDSender, evt.PacketId),
-		ConvertMessageFunc: convertMessageEvent,
+		ConvertMessageFunc: c.convertMessageEvent,
 	}
 
 	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)
@@ -149,14 +149,22 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 	ghost.UpdateInfo(context.Background(), userInfo)
 }
 
-func convertMessageEvent(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data *mesh.MeshMessageEvent) (*bridgev2.ConvertedMessage, error) {
+func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data *mesh.MeshMessageEvent) (*bridgev2.ConvertedMessage, error) {
 	mess := data.Message
 	formatted := ""
 	mentions := &event.Mentions{}
 	if strings.Contains(mess, mesh.BellCharacter) {
-		mess = strings.ReplaceAll(mess, mesh.BellCharacter, portal.MXID.String())
-		formatted = strings.ReplaceAll(data.Message, mesh.BellCharacter, fmt.Sprintf(`<a href="%s">%s</a>`, portal.MXID.URI().MatrixToURL(), html.EscapeString("@room")))
-		mentions.Room = true
+		if portal.RoomType == database.RoomTypeDM {
+			user := c.bridge.GetCachedUserLoginByID(portal.Receiver)
+			userTag := fmt.Sprintf("@%s", user.UserMXID)
+			mess = strings.ReplaceAll(mess, mesh.BellCharacter, userTag)
+			formatted = strings.ReplaceAll(data.Message, mesh.BellCharacter, fmt.Sprintf(`<a href="%s">%s</a>`, user.UserMXID.URI().MatrixToURL(), html.EscapeString(userTag)))
+			mentions.UserIDs = append(mentions.UserIDs, user.UserMXID)
+		} else {
+			mess = strings.ReplaceAll(mess, mesh.BellCharacter, portal.MXID.String())
+			formatted = strings.ReplaceAll(data.Message, mesh.BellCharacter, fmt.Sprintf(`<a href="%s">%s</a>`, portal.MXID.URI().MatrixToURL(), html.EscapeString("@room")))
+			mentions.Room = true
+		}
 	}
 	content := &event.MessageEventContent{
 		MsgType:       event.MsgText,
