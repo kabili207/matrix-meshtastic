@@ -271,25 +271,22 @@ func getLastByteOfNodeNum(num uint32) uint8 {
 }
 
 func getPriority(data *pb.Data, wantAck bool) pb.MeshPacket_Priority {
-	// We might receive acks from other nodes (and since generated remotely, they won't have priority assigned.  Check for that
-	// and fix it
 	priority := pb.MeshPacket_DEFAULT
-	// if a reliable message give a bit higher default priority
 	if wantAck {
+		// if a reliable message give a bit higher default priority
 		priority = pb.MeshPacket_RELIABLE
 	}
-	// if acks/naks give very high priority
 	if data.Portnum == pb.PortNum_ROUTING_APP {
+		// if acks/naks give very high priority
 		priority = pb.MeshPacket_ACK
+	} else if data.Portnum == pb.PortNum_TEXT_MESSAGE_APP || data.Portnum == pb.PortNum_ADMIN_APP {
 		// if text or admin, give high priority
-	} else if data.Portnum == pb.PortNum_TEXT_MESSAGE_APP ||
-		data.Portnum == pb.PortNum_ADMIN_APP {
 		priority = pb.MeshPacket_HIGH
-		// if it is a response, give higher priority to let it arrive early and stop the request being relayed
 	} else if data.RequestId != 0 {
+		// if it is a response, give higher priority to let it arrive early and stop the request being relayed
 		priority = pb.MeshPacket_RESPONSE
-		// Also if we want a response, give a bit higher priority
 	} else if data.WantResponse {
+		// Also if we want a response, give a bit higher priority
 		priority = pb.MeshPacket_RELIABLE
 	}
 	return priority

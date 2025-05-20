@@ -36,9 +36,6 @@ func (c *MeshtasticClient) handleUdpMeshPacket(packet *pb.MeshPacket) {
 }
 
 func (c *MeshtasticClient) getChannelNameFromHash(idHash uint32) string {
-	if idHash == 0 {
-		return "PKI"
-	}
 	for k, v := range c.channelKeys {
 		if hash, err := radio.ChannelHash(k, v); err == nil && hash == idHash {
 			return k
@@ -54,53 +51,82 @@ func (c *MeshtasticClient) handleMeshPacket(packet NetworkMeshPacket) {
 		Stringer("to", meshid.NodeID(packet.To)).
 		Logger()
 
-	cacheKey := (uint64(packet.From) << 32) | uint64(packet.Id)
-	if packet.Id != 0 && c.packetCache.Has(cacheKey) {
+	if c.isDuplicatePacket(packet) {
 		log.Debug().Msg("Ignoring duplicate packet")
 		return
 	}
-	c.packetCache.Set(cacheKey, nil, ttlcache.DefaultTTL)
+	c.cachePacket(packet)
 
 	if c.managedNodeFunc(meshid.NodeID(packet.From)) {
 		return
 	}
 
+	var data *pb.Data
+	var err error
+
+	if c.shouldUsePKIDecryption(packet) {
+		data, err = c.tryDecryptPKI(packet)
+		if err != nil {
+			log.Warn().AnErr("error", err).Msg("failed to decrypt as PKI packet")
+		}
+	}
+
+	if data == nil {
+		data, err = c.tryDecryptPSK(packet)
+		if err != nil {
+			log.Err(err).Msg("failed to decrypt the message packet")
+			return
+		}
+	}
+
+	_ = c.processMessage(packet, data)
+}
+
+func (c *MeshtasticClient) isDuplicatePacket(packet NetworkMeshPacket) bool {
+	if packet.Id == 0 {
+		return false
+	}
+	cacheKey := (uint64(packet.From) << 32) | uint64(packet.Id)
+	return c.packetCache.Has(cacheKey)
+}
+
+func (c *MeshtasticClient) cachePacket(packet NetworkMeshPacket) {
+	cacheKey := (uint64(packet.From) << 32) | uint64(packet.Id)
+	c.packetCache.Set(cacheKey, nil, ttlcache.DefaultTTL)
+}
+
+func (c *MeshtasticClient) shouldUsePKIDecryption(packet NetworkMeshPacket) bool {
+	return packet.Channel == 0 && packet.To > 0 &&
+		meshid.NodeID(packet.To) != meshid.BROADCAST_ID &&
+		c.managedNodeFunc(meshid.NodeID(packet.To))
+
+}
+
+func (c *MeshtasticClient) tryDecryptPKI(packet NetworkMeshPacket) (*pb.Data, error) {
+	toNode := meshid.NodeID(packet.To)
+	fromNode := meshid.NodeID(packet.From)
+
+	privKey, err := c.requestKey(toNode, c.privKeyRequestHandler)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve private key for %s: %w", toNode, err)
+	}
+
+	pubKey, err := c.requestKey(fromNode, c.pubKeyRequestHandler)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve public key for %s: %w", fromNode, err)
+	}
+
+	packet.ChannelName = "PKI"
+	return radio.TryDecodePKI(packet.MeshPacket, pubKey, privKey)
+}
+
+func (c *MeshtasticClient) tryDecryptPSK(packet NetworkMeshPacket) (*pb.Data, error) {
 	packet.ChannelName = c.getChannelNameFromHash(packet.Channel)
 	if packet.ChannelName == "" {
-		log.Debug().Uint32("channel_hash", packet.Channel).Msg("Unknown channel hash. Ignoring message")
-		return
+		return nil, fmt.Errorf("unknown channel hash: %d", packet.Channel)
 	}
-	log = log.With().Str("channel", packet.ChannelName).Logger()
 	key := c.channelKeys[packet.ChannelName]
-
-	if packet.PkiEncrypted || packet.ChannelName == "PKI" || (packet.Channel == 0 && packet.To > 0 && meshid.NodeID(packet.To) != meshid.BROADCAST_ID) {
-
-		if !c.managedNodeFunc(meshid.NodeID(packet.To)) {
-			log.Debug().Msg("Ignoring PKI packet to unmanaged node")
-			return
-		}
-
-		pubKey, err := c.requestKey(meshid.NodeID(packet.From), c.pubKeyRequestHandler)
-		if err != nil {
-			log.Err(err).Msg("Error getting public key for sending node")
-			return
-		}
-		packet.PublicKey = pubKey
-		packet.PkiEncrypted = true
-
-		key, err = c.requestKey(meshid.NodeID(packet.To), c.privKeyRequestHandler)
-		if err != nil {
-			log.Err(err).Msg("Error getting private key for receiving node")
-			return
-		}
-	}
-
-	message, err := radio.TryDecode(packet.MeshPacket, key)
-	if err != nil {
-		log.Err(err).Msg("failed to decrypt the message packet")
-	}
-
-	_ = c.processMessage(packet, message)
+	return radio.TryDecode(packet.MeshPacket, key)
 }
 
 func (c *MeshtasticClient) requestKey(nodeID meshid.NodeID, handler KeyRequestFunc) ([]byte, error) {
