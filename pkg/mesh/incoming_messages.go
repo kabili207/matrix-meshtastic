@@ -154,6 +154,7 @@ func (c *MeshtasticClient) processMessage(packet NetworkMeshPacket, message *pb.
 		PacketId:    packet.Id,
 		To:          meshid.NodeID(packet.To),
 		From:        meshid.NodeID(packet.From),
+		Via:         packet.GatewayNode,
 		ChannelName: packet.ChannelName,
 		ChannelKey:  &chanKey,
 		Timestamp:   packet.RxTime,

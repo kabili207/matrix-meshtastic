@@ -156,7 +156,8 @@ func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *brid
 	if strings.Contains(mess, mesh.BellCharacter) {
 		if portal.RoomType == database.RoomTypeDM {
 			user := c.bridge.GetCachedUserLoginByID(portal.Receiver)
-			userTag := fmt.Sprintf("@%s", user.UserMXID)
+			userTag := user.UserMXID.String()
+
 			mess = strings.ReplaceAll(mess, mesh.BellCharacter, userTag)
 			formatted = strings.ReplaceAll(data.Message, mesh.BellCharacter, fmt.Sprintf(`<a href="%s">%s</a>`, user.UserMXID.URI().MatrixToURL(), html.EscapeString(userTag)))
 			mentions.UserIDs = append(mentions.UserIDs, user.UserMXID)

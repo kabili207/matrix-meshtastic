@@ -7,6 +7,7 @@ type MeshEvent struct {
 	ChannelKey  *string
 	From        meshid.NodeID
 	To          meshid.NodeID
+	Via         meshid.NodeID
 	Timestamp   uint32
 	PacketId    uint32
 	WantAck     bool

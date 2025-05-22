@@ -126,7 +126,7 @@ func (c *MeshtasticClient) SendNeighborInfo(from meshid.NodeID, neighborIDs []me
 
 	neighbors := []*pb.Neighbor{}
 	for _, id := range neighborIDs {
-		if id != from {
+		if id != from && id > 1 {
 			neighbors = append(neighbors, &pb.Neighbor{NodeId: uint32(id), Snr: 0})
 		}
 	}

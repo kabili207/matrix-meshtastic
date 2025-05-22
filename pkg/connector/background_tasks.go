@@ -70,13 +70,13 @@ func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 		}
 	}
 	c.meshClient.SendNeighborInfo(c.GetBaseNodeID(), nodeIDs)
-	c.doForAllManagedGhosts(ctx, func(nodeID meshid.NodeID, meta *meshid.GhostMetadata) {
-		c.log.Info().
-			Str("long_name", meta.LongName).
-			Stringer("node_id", nodeID).
-			Msg("Broadcasting periodic neighbor info")
-		c.meshClient.SendNeighborInfo(nodeID, nodeIDs)
-	})
+	//c.doForAllManagedGhosts(ctx, func(nodeID meshid.NodeID, meta *meshid.GhostMetadata) {
+	//	c.log.Info().
+	//		Str("long_name", meta.LongName).
+	//		Stringer("node_id", nodeID).
+	//		Msg("Broadcasting periodic neighbor info")
+	//	c.meshClient.SendNeighborInfo(nodeID, nodeIDs)
+	//})
 }
 
 func (c *MeshtasticConnector) sendPeriodicNodeInfo(ctx context.Context) {
