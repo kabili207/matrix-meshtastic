@@ -13,10 +13,19 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type PacketSource string
+
+const (
+	PacketSourceMQTT  PacketSource = "mqtt"
+	PacketSourceUDP   PacketSource = "udp"
+	PacketSourceRadio PacketSource = "radio"
+)
+
 type NetworkMeshPacket struct {
 	*pb.MeshPacket
 	ChannelName string
 	GatewayNode meshid.NodeID
+	Source      PacketSource
 }
 
 func (c *MeshtasticClient) handleMQTTMessage(m mqtt.Message) {
@@ -29,10 +38,16 @@ func (c *MeshtasticClient) handleMQTTMessage(m mqtt.Message) {
 	}
 	packet := env.GetPacket()
 	gateway, _ := meshid.ParseNodeID(env.GatewayId)
-	c.handleMeshPacket(NetworkMeshPacket{MeshPacket: packet, GatewayNode: gateway, ChannelName: env.ChannelId})
+	c.handleMeshPacket(NetworkMeshPacket{
+		MeshPacket:  packet,
+		GatewayNode: gateway,
+		ChannelName: env.ChannelId,
+		Source:      PacketSourceMQTT,
+	})
 }
 func (c *MeshtasticClient) handleUdpMeshPacket(packet *pb.MeshPacket) {
-	c.handleMeshPacket(NetworkMeshPacket{MeshPacket: packet})
+	// TODO: Determine gateway node based on the final byte in packet.RelayNode
+	c.handleMeshPacket(NetworkMeshPacket{MeshPacket: packet, Source: PacketSourceUDP})
 }
 
 func (c *MeshtasticClient) getChannelNameFromHash(idHash uint32) string {
@@ -45,10 +60,17 @@ func (c *MeshtasticClient) getChannelNameFromHash(idHash uint32) string {
 }
 
 func (c *MeshtasticClient) handleMeshPacket(packet NetworkMeshPacket) {
+	gateway := packet.GatewayNode
+	if gateway == 0 {
+		// This will only be the last byte of the relay node
+		gateway = meshid.NodeID(packet.RelayNode)
+	}
 	log := c.log.With().
 		Uint32("packet_id", packet.Id).
 		Stringer("from", meshid.NodeID(packet.From)).
 		Stringer("to", meshid.NodeID(packet.To)).
+		Str("source", string(packet.Source)).
+		Stringer("via", gateway).
 		Logger()
 
 	if c.isDuplicatePacket(packet) {
