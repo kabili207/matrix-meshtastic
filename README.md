@@ -51,5 +51,26 @@ Channels on Meshtastic are based on the name of the channel and a pre-shared key
 channel, message the bot user and use the `join-channel` command, passing both the name and PSK like so:
 `join-channel LongFast 1PG7OiApB1nwvP+rz05pAQ==`
 
+### Recommended Config Settings
+
+The following additional config options are recommended. If you do enable relaying, it is strongly advised
+that you enable the `commands` permissions for everyone, as it allows them to set the long and short names
+used on the Meshtastic network.
+
+```yaml
+bridge:
+    relay:
+        enabled: true
+        message_formats:
+            m.text: "{{ .Message }}"
+            m.notice: "{{ .Message }}"
+            m.emote: "{{ .Message }}"
+        displayname_format: "{{ .DisambiguatedName }}"
+    permissions:
+        "*": commands
+        "example.com": user
+        "@admin:example.com": admin
+```
+
 ### Features & Roadmap
 [ROADMAP.md](ROADMAP.md) contains a general overview of what is supported by the bridge.

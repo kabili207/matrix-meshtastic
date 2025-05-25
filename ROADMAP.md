@@ -25,7 +25,7 @@
 * Misc
   * [ ] Connection methods
     * [x] MQTT
-    * [ ] Mesh over LAN (UDP, v2.6+)
+    * [x] Mesh over LAN (UDP, v2.6+)
     * [ ] Phone API (serial/bluetooth/TCP)
   * [x] Automatic portal creation
     * [x] When receiving message
