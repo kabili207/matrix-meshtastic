@@ -5,50 +5,13 @@ import (
 	"fmt"
 
 	"github.com/jellydator/ttlcache/v3"
+	"github.com/kabili207/matrix-meshtastic/pkg/mesh/connectors"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
-	"github.com/meshnet-gophers/meshtastic-go/mqtt"
 	"github.com/meshnet-gophers/meshtastic-go/radio"
 	"go.mau.fi/util/ptr"
 	"google.golang.org/protobuf/proto"
 )
-
-type PacketSource string
-
-const (
-	PacketSourceMQTT  PacketSource = "mqtt"
-	PacketSourceUDP   PacketSource = "udp"
-	PacketSourceRadio PacketSource = "radio"
-)
-
-type NetworkMeshPacket struct {
-	*pb.MeshPacket
-	ChannelName string
-	GatewayNode meshid.NodeID
-	Source      PacketSource
-}
-
-func (c *MeshtasticClient) handleMQTTMessage(m mqtt.Message) {
-	log := c.log.With().Logger()
-	var env pb.ServiceEnvelope
-	err := proto.Unmarshal(m.Payload, &env)
-	if err != nil {
-		log.Err(err).Msg("failed unmarshalling to service envelope")
-		return
-	}
-	packet := env.GetPacket()
-	gateway, _ := meshid.ParseNodeID(env.GatewayId)
-	c.handleMeshPacket(NetworkMeshPacket{
-		MeshPacket:  packet,
-		GatewayNode: gateway,
-		ChannelName: env.ChannelId,
-		Source:      PacketSourceMQTT,
-	})
-}
-func (c *MeshtasticClient) handleUdpMeshPacket(packet *pb.MeshPacket) {
-	// TODO: Determine gateway node based on the final byte in packet.RelayNode
-	c.handleMeshPacket(NetworkMeshPacket{MeshPacket: packet, Source: PacketSourceUDP})
-}
 
 func (c *MeshtasticClient) getChannelNameFromHash(idHash uint32) string {
 	for k, v := range c.channelKeys {
@@ -59,7 +22,7 @@ func (c *MeshtasticClient) getChannelNameFromHash(idHash uint32) string {
 	return ""
 }
 
-func (c *MeshtasticClient) handleMeshPacket(packet NetworkMeshPacket) {
+func (c *MeshtasticClient) handleMeshPacket(packet connectors.NetworkMeshPacket) {
 	gateway := packet.GatewayNode
 	if gateway == 0 {
 		// This will only be the last byte of the relay node
@@ -104,7 +67,7 @@ func (c *MeshtasticClient) handleMeshPacket(packet NetworkMeshPacket) {
 	_ = c.processMessage(packet, data)
 }
 
-func (c *MeshtasticClient) isDuplicatePacket(packet NetworkMeshPacket) bool {
+func (c *MeshtasticClient) isDuplicatePacket(packet connectors.NetworkMeshPacket) bool {
 	if packet.Id == 0 {
 		return false
 	}
@@ -112,19 +75,19 @@ func (c *MeshtasticClient) isDuplicatePacket(packet NetworkMeshPacket) bool {
 	return c.packetCache.Has(cacheKey)
 }
 
-func (c *MeshtasticClient) cachePacket(packet NetworkMeshPacket) {
+func (c *MeshtasticClient) cachePacket(packet connectors.NetworkMeshPacket) {
 	cacheKey := (uint64(packet.From) << 32) | uint64(packet.Id)
 	c.packetCache.Set(cacheKey, nil, ttlcache.DefaultTTL)
 }
 
-func (c *MeshtasticClient) shouldUsePKIDecryption(packet NetworkMeshPacket) bool {
+func (c *MeshtasticClient) shouldUsePKIDecryption(packet connectors.NetworkMeshPacket) bool {
 	return packet.Channel == 0 && packet.To > 0 &&
 		meshid.NodeID(packet.To) != meshid.BROADCAST_ID &&
 		c.managedNodeFunc(meshid.NodeID(packet.To))
 
 }
 
-func (c *MeshtasticClient) tryDecryptPKI(packet NetworkMeshPacket) (*pb.Data, error) {
+func (c *MeshtasticClient) tryDecryptPKI(packet connectors.NetworkMeshPacket) (*pb.Data, error) {
 	toNode := meshid.NodeID(packet.To)
 	fromNode := meshid.NodeID(packet.From)
 
@@ -142,7 +105,7 @@ func (c *MeshtasticClient) tryDecryptPKI(packet NetworkMeshPacket) (*pb.Data, er
 	return radio.TryDecodePKI(packet.MeshPacket, pubKey, privKey)
 }
 
-func (c *MeshtasticClient) tryDecryptPSK(packet NetworkMeshPacket) (*pb.Data, error) {
+func (c *MeshtasticClient) tryDecryptPSK(packet connectors.NetworkMeshPacket) (*pb.Data, error) {
 	packet.ChannelName = c.getChannelNameFromHash(packet.Channel)
 	if packet.ChannelName == "" {
 		return nil, fmt.Errorf("unknown channel hash: %d", packet.Channel)
@@ -162,7 +125,7 @@ func (c *MeshtasticClient) requestKey(nodeID meshid.NodeID, handler KeyRequestFu
 	return radio.ParseKey(*keyString)
 }
 
-func (c *MeshtasticClient) processMessage(packet NetworkMeshPacket, message *pb.Data) error {
+func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, message *pb.Data) error {
 	if message == nil {
 		return fmt.Errorf("nil message")
 	}

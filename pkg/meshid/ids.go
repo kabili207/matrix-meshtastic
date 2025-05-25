@@ -44,6 +44,14 @@ func (n NodeID) ToMacAddress() net.HardwareAddr {
 	return net.HardwareAddr{0xA, 0, a[0], a[1], a[2], a[3]}
 }
 
+// GetNodeColor returns the RGB values used by various user-interfaces
+func (n NodeID) GetNodeColor() (r, g, b uint8) {
+	r = uint8((n & 0xFF0000) >> 16)
+	g = uint8((n & 0x00FF00) >> 8)
+	b = uint8(n & 0x0000FF)
+	return
+}
+
 func ParseNodeID(nodeID string) (NodeID, error) {
 	v, _ := strings.CutPrefix(nodeID, "!")
 	packet64, err := strconv.ParseUint(string(v), 16, 32)

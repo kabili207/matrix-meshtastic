@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/jellydator/ttlcache/v3"
+	"github.com/kabili207/matrix-meshtastic/pkg/mesh/connectors"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
 	"github.com/meshnet-gophers/meshtastic-go/mqtt"
@@ -38,7 +41,6 @@ type MeshtasticClient struct {
 	log               zerolog.Logger
 	startTime         *time.Time
 	nodeId            meshid.NodeID
-	mqttClient        *mqtt.Client
 	channelKeys       map[string][]byte
 	channelKeyStrings map[string]string
 	currentPacketId   uint32
@@ -56,7 +58,8 @@ type MeshtasticClient struct {
 
 	packetCache       *ttlcache.Cache[uint64, any]
 	nodeInfoSendCache map[meshid.NodeID]time.Time
-	updHandler        *UDPMessageHandler
+
+	meshConnectors []connectors.MeshConnector
 }
 
 func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger zerolog.Logger) *MeshtasticClient {
@@ -66,7 +69,6 @@ func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger z
 	mc := &MeshtasticClient{
 		startTime:         &now,
 		nodeId:            nodeId,
-		mqttClient:        mqttClient,
 		channelKeys:       map[string][]byte{},
 		channelKeyStrings: map[string]string{},
 		seenNodes:         map[meshid.NodeID]MeshNodeInfo{},
@@ -74,18 +76,21 @@ func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger z
 		eventHandlers:     []MeshEventFunc{},
 		log:               logger,
 		hopLimit:          DefaultHopLimit,
-		updHandler:        NewUDPMessageHandler(logger),
+		meshConnectors: []connectors.MeshConnector{
+			// TODO: Let implementors decide which connector to enable
+			connectors.NewUDPMessageHandler(logger),
+			connectors.NewMQTTMessageHandler(nodeId, mqttClient, logger),
+		},
 	}
 
 	mc.packetCache = ttlcache.New(
 		ttlcache.WithTTL[uint64, any](2 * time.Hour),
 	)
 
-	mqttClient.SetOnConnectHandler(mc.onMqttConnected)
-	mqttClient.SetReconnectingHandler(mc.onMqttReconnecting)
-	mqttClient.SetConnectionLostHandler(mc.onMqttConnectionLost)
-
-	mc.updHandler.SetHandler(mc.handleUdpMeshPacket)
+	for _, h := range mc.meshConnectors {
+		h.SetPacketHandler(mc.handleMeshPacket)
+		h.SetStateHandler(mc.handleConnectorStateChange)
+	}
 
 	return mc
 }
@@ -94,60 +99,82 @@ func (c *MeshtasticClient) Connect() error {
 	if c.primaryChannel == "" {
 		return errors.New("primary channel not set")
 	}
-	if !c.mqttClient.IsConnected() {
-		err := c.mqttClient.Connect()
-		if err != nil {
-			return err
+
+	errs := []error{}
+
+	for _, h := range c.meshConnectors {
+		if err := h.Start(); err != nil {
+			errs = append(errs, err)
 		}
 	}
-	c.updHandler.Start()
+
+	if len(errs) == len(c.meshConnectors) {
+		return errors.Join(errs...)
+	}
+
+	if len(errs) > 0 {
+		c.log.Warn().AnErr("errors", errors.Join(errs...)).Msg("Error starting one or more connectors")
+	}
+
 	return nil
 }
 
 func (c *MeshtasticClient) Disconnect() {
-	c.updHandler.Stop()
-	c.mqttClient.Disconnect()
+	for _, h := range c.meshConnectors {
+		h.Stop()
+	}
 }
 
 func (c *MeshtasticClient) IsConnected() bool {
-	return c.mqttClient.IsConnected()
-}
-
-func (c *MeshtasticClient) onMqttConnected() {
-	c.log.Debug().
-		Str("topic", c.mqttClient.TopicRoot()).
-		Msg("Connected to MQTT broker")
-	c.AddDMHandler()
-	isReconnect := c.previouslyConnected
-	c.previouslyConnected = true
-	if !isReconnect {
-		for name, _ := range c.channelKeys {
-			c.mqttClient.Handle(name, c.handleMQTTMessage)
+	for _, h := range c.meshConnectors {
+		// We only care if at least one handler is connected
+		if h.IsConnected() {
+			return true
 		}
 	}
-	if c.onConnectHandler != nil {
-		c.onConnectHandler(isReconnect)
-	}
+	return false
 }
 
-func (c *MeshtasticClient) onMqttReconnecting() {
-	c.log.Info().
-		Str("topic", c.mqttClient.TopicRoot()).
-		Msg("Reconnecting to MQTT broker")
-}
+func (c *MeshtasticClient) handleConnectorStateChange(mh connectors.MeshConnector, le connectors.ListenerEvent) {
 
-func (c *MeshtasticClient) onMqttConnectionLost(err error) {
-	c.log.Err(err).Msg("Lost connection to MQTT broker")
-	if c.onDisconnectHandler != nil {
-		c.onDisconnectHandler()
+	if !c.previouslyConnected {
+		c.previouslyConnected = true
+		c.log.Info().Msg("Connection to mesh network established")
+		if c.onConnectHandler != nil {
+			c.onConnectHandler(false)
+		}
 	}
-}
 
-func (c *MeshtasticClient) AddDMHandler() error {
-	if c.mqttClient != nil && c.mqttClient.IsConnected() {
-		c.mqttClient.Handle("PKI", c.handleMQTTMessage)
+	// Count how many other handlers are still connected
+	connectedCount := 0
+	for _, h := range c.meshConnectors {
+		if h != mh && h.IsConnected() {
+			connectedCount++
+		}
 	}
-	return nil
+
+	if connectedCount > 0 {
+		c.log.Debug().Msg("Already connected to mesh")
+		return
+	}
+
+	switch le {
+	case connectors.EventConnectionLost:
+		c.log.Warn().Msg("Connection to mesh network lost")
+		if c.onDisconnectHandler != nil {
+			c.onDisconnectHandler()
+		}
+	case connectors.EventRestarted:
+		c.log.Info().Msg("Connection to mesh network re-established")
+		if c.onConnectHandler != nil {
+			c.onConnectHandler(true)
+		}
+	case connectors.EventStarted:
+		c.log.Info().Msg("Connection to mesh network established")
+		if c.onConnectHandler != nil {
+			c.onConnectHandler(false)
+		}
+	}
 }
 
 func (c *MeshtasticClient) AddChannel(channelName, key string) error {
@@ -160,8 +187,10 @@ func (c *MeshtasticClient) AddChannel(channelName, key string) error {
 		ChannelID:  channelName,
 		ChannelKey: &key,
 	})
-	if _, ok := c.channelKeys[channelName]; !ok && c.mqttClient != nil && c.mqttClient.IsConnected() {
-		c.mqttClient.Handle(channelName, c.handleMQTTMessage)
+	if _, ok := c.channelKeys[channelName]; !ok {
+		for _, h := range c.meshConnectors {
+			h.AddChannel(channelName)
+		}
 	}
 	c.channelKeys[channelName] = keyBytes
 	c.channelKeyStrings[channelName] = key
@@ -389,7 +418,6 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		}
 		pkt.PkiEncrypted = true
 		pkt.Channel = 0
-		channel = "PKI"
 		pkt.PayloadVariant = &pb.MeshPacket_Encrypted{
 			Encrypted: encodedBytes,
 		}
@@ -397,30 +425,38 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		return 0, errors.New("unknown encryption method requested")
 	}
 
-	if err = c.updHandler.SendMulticast(&pkt); err != nil {
-		c.log.Warn().AnErr("error", err).Msg("Error sending via UDP")
+	conLen := len(c.meshConnectors)
+	errs := make([]error, conLen)
+	var wg sync.WaitGroup
+	wg.Add(conLen)
+
+	for i, h := range c.meshConnectors {
+		go func(h connectors.MeshConnector) {
+			defer wg.Done()
+			errs[i] = h.SendPacket(channel, &pkt)
+		}(h)
 	}
 
-	env := pb.ServiceEnvelope{
-		ChannelId: channel,
-		GatewayId: c.nodeId.String(),
-		Packet:    &pkt,
+	wg.Wait()
+
+	errs = slices.DeleteFunc(
+		errs,
+		func(thing error) bool {
+			return thing == nil
+		},
+	)
+
+	errs = slices.Clip(errs)
+
+	if len(errs) == len(c.meshConnectors) {
+		return packetId, errors.Join(errs...)
 	}
 
-	rawEnv, err := proto.Marshal(&env)
-
-	if err != nil {
-		return packetId, err
+	if len(errs) > 0 {
+		c.log.Warn().AnErr("errors", errors.Join(errs...)).Msg("Error sending to one or more connectors")
 	}
 
-	//c.printOutgoingPacketDetails(channel, info.From, info.To, pkt.Id, &data)
-
-	reply := mqtt.Message{
-		Topic:   fmt.Sprintf("%s/%s", c.mqttClient.GetFullTopicForChannel(channel), c.nodeId),
-		Payload: rawEnv,
-	}
-
-	return packetId, c.mqttClient.Publish(&reply)
+	return packetId, nil
 
 }
 
@@ -430,7 +466,7 @@ func (c *MeshtasticClient) notifyEvent(event any) {
 	}
 }
 
-func (c *MeshtasticClient) printPacketDetails(pkt NetworkMeshPacket, data any) {
+func (c *MeshtasticClient) printPacketDetails(pkt connectors.NetworkMeshPacket, data any) {
 	log := c.log.With().
 		Str("channel", pkt.ChannelName).
 		Stringer("from", meshid.NodeID(pkt.From)).

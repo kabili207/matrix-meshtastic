@@ -4,11 +4,12 @@ import (
 	"math"
 	"slices"
 
+	"github.com/kabili207/matrix-meshtastic/pkg/mesh/connectors"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
 )
 
-func (c *MeshtasticClient) handleTraceroute(packet NetworkMeshPacket, disco *pb.RouteDiscovery) {
+func (c *MeshtasticClient) handleTraceroute(packet connectors.NetworkMeshPacket, disco *pb.RouteDiscovery) {
 
 	toNode := meshid.NodeID(packet.To)
 	fromNode := meshid.NodeID(packet.From)

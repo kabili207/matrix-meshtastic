@@ -1,4 +1,4 @@
-package mesh
+package connectors
 
 import (
 	"net"
@@ -18,54 +18,84 @@ const (
 	maxReconnectDelay = 30 * time.Second
 )
 
-type UDPMessageHandler struct {
+var _ MeshConnector = (*udpMessageHandler)(nil)
+
+type udpMessageHandler struct {
 	conn         *net.UDPConn
-	handlerFunc  func(*pb.MeshPacket)
+	handlerFunc  MeshPacketHandler
+	stateFunc    StateEventHandler
 	running      atomic.Bool
+	listening    atomic.Bool
 	stopChan     chan struct{}
 	waitGroup    sync.WaitGroup
 	reconnectMux sync.Mutex
 	logger       zerolog.Logger
+	isRestart    bool
 }
 
 // NewUDPMessageHandler creates a new UDPMessageHandler with optional zerolog.Logger
-func NewUDPMessageHandler(logger zerolog.Logger) *UDPMessageHandler {
-	return &UDPMessageHandler{
+func NewUDPMessageHandler(logger zerolog.Logger) MeshConnector {
+	return &udpMessageHandler{
 		stopChan: make(chan struct{}),
 		logger:   logger,
 	}
 }
 
 // Start begins listening to multicast packets
-func (h *UDPMessageHandler) Start() {
+func (h *udpMessageHandler) Start() error {
 	if h.running.Load() {
-		return
+		return nil
 	}
 	h.running.Store(true)
 	h.stopChan = make(chan struct{})
 
 	h.waitGroup.Add(1)
 	go h.listenWithReconnect()
+	return nil
 }
 
 // Stop halts the listener and cleans up
-func (h *UDPMessageHandler) Stop() {
+func (h *udpMessageHandler) Stop() {
 	if !h.running.Load() {
 		return
 	}
 	h.running.Store(false)
+	h.listening.Store(false)
 	close(h.stopChan)
 	h.waitGroup.Wait()
 	h.closeConn()
 }
 
+func (h *udpMessageHandler) IsRunning() bool {
+	return h.running.Load()
+}
+
+func (h *udpMessageHandler) IsConnected() bool {
+	return h.listening.Load()
+}
+
+// AddChannel implements MeshHandler.
+func (h *udpMessageHandler) AddChannel(channelName string) {
+	// Do nothing; not required for this connector
+}
+
 // SetHandler registers the callback for incoming messages
-func (h *UDPMessageHandler) SetHandler(fn func(*pb.MeshPacket)) {
+func (h *udpMessageHandler) SetPacketHandler(fn MeshPacketHandler) {
 	h.handlerFunc = fn
 }
 
+// SetStateHandler implements MeshHandler.
+func (h *udpMessageHandler) SetStateHandler(fn StateEventHandler) {
+	h.stateFunc = fn
+}
+
+// SendPacket implements MeshHandler.
+func (h *udpMessageHandler) SendPacket(channel string, packet *pb.MeshPacket) error {
+	return h.SendMulticast(packet)
+}
+
 // SendMulticast sends a protobuf message to the multicast group
-func (h *UDPMessageHandler) SendMulticast(msg *pb.MeshPacket) error {
+func (h *udpMessageHandler) SendMulticast(msg *pb.MeshPacket) error {
 	data, err := proto.Marshal(msg)
 	if err != nil {
 		return err
@@ -86,7 +116,7 @@ func (h *UDPMessageHandler) SendMulticast(msg *pb.MeshPacket) error {
 	return err
 }
 
-func (h *UDPMessageHandler) listenWithReconnect() {
+func (h *udpMessageHandler) listenWithReconnect() {
 	defer h.waitGroup.Done()
 	delay := 1 * time.Second
 
@@ -94,25 +124,42 @@ func (h *UDPMessageHandler) listenWithReconnect() {
 		err := h.setupSocket()
 		if err != nil {
 			h.logger.Warn().Err(err).Msg("UDP setup failed")
+			h.listening.Store(false)
+			h.emitStateEvent(EventConnectionLost)
 			time.Sleep(delay)
 			delay = minDuration(delay*2, maxReconnectDelay)
 			continue
 		}
 
+		h.listening.Store(true)
+
+		eventType := EventStarted
+		if h.isRestart {
+			eventType = EventRestarted
+		}
+		h.emitStateEvent(eventType)
+
+		h.isRestart = true
+
 		h.logger.Info().Str("addr", h.conn.LocalAddr().String()).Msg("Listening for UDP multicast")
+
 		if h.listenLoop() == nil {
 			break // graceful shutdown
 		}
 
 		h.logger.Warn().Dur("retry_in", delay).Msg("UDP listener restarting")
 		h.closeConn()
+		h.listening.Store(false)
+		h.emitStateEvent(EventConnectionLost)
 		time.Sleep(delay)
 		delay = minDuration(delay*2, maxReconnectDelay)
 	}
+
+	h.listening.Store(false)
 }
 
 // listenLoop handles message reading
-func (h *UDPMessageHandler) listenLoop() error {
+func (h *udpMessageHandler) listenLoop() error {
 	buf := make([]byte, 2048)
 	for {
 		select {
@@ -132,14 +179,15 @@ func (h *UDPMessageHandler) listenLoop() error {
 			}
 
 			if h.handlerFunc != nil {
-				h.handlerFunc(msg)
+				// TODO: Determine gateway node based on the final byte in packet.RelayNode
+				h.handlerFunc(NetworkMeshPacket{MeshPacket: msg, Source: PacketSourceUDP})
 			}
 		}
 	}
 }
 
 // setupSocket joins multicast group and prepares socket
-func (h *UDPMessageHandler) setupSocket() error {
+func (h *udpMessageHandler) setupSocket() error {
 	h.reconnectMux.Lock()
 	defer h.reconnectMux.Unlock()
 
@@ -160,12 +208,18 @@ func (h *UDPMessageHandler) setupSocket() error {
 }
 
 // closeConn safely closes socket
-func (h *UDPMessageHandler) closeConn() {
+func (h *udpMessageHandler) closeConn() {
 	h.reconnectMux.Lock()
 	defer h.reconnectMux.Unlock()
 	if h.conn != nil {
 		_ = h.conn.Close()
 		h.conn = nil
+	}
+}
+
+func (h *udpMessageHandler) emitStateEvent(eventType ListenerEvent) {
+	if h.stateFunc != nil {
+		h.stateFunc(h, eventType)
 	}
 }
 

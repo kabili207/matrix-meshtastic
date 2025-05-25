@@ -9,7 +9,16 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/event"
 )
+
+var _ bridgev2.PortalBridgeInfoFillingNetwork = (*MeshtasticConnector)(nil)
+
+// FillPortalBridgeInfo implements bridgev2.PortalBridgeInfoFillingNetwork.
+func (mc *MeshtasticConnector) FillPortalBridgeInfo(portal *bridgev2.Portal, content *event.BridgeEventContent) {
+	// This is where we can modify the MSC2346 m.bridge / uk.half-shot.bridge state event
+	// We don't actually need to modify it currently, but that may change in the future
+}
 
 func (mc *MeshtasticClient) wrapDMInfo(synthNode, remoteNode meshid.NodeID) *bridgev2.ChatInfo {
 	info := &bridgev2.ChatInfo{

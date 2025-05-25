@@ -53,7 +53,7 @@ func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortN
 		return errors.New("short name must be less than 5 bytes")
 	}
 
-	role := pb.Config_DeviceConfig_CLIENT
+	role := pb.Config_DeviceConfig_CLIENT_MUTE
 	hw := pb.HardwareModel_PRIVATE_HW
 	if from == c.nodeId {
 		role = pb.Config_DeviceConfig_REPEATER
@@ -244,9 +244,9 @@ func GetPositionPrecisionInMeters(positionPrecision uint32) uint32 {
 	return precisionMap[positionPrecision]
 }
 
-func (c *MeshtasticClient) SendMapReport(from meshid.NodeID, longName, shortName string, latitude, longitude, accuracy float32, altitude int32, numNodes uint32) (packetID uint32, err error) {
+func (c *MeshtasticClient) SendMapReport(from meshid.NodeID, longName, shortName string, location meshid.GeoURI, numNodes uint32) (packetID uint32, err error) {
 
-	if latitude == 0 || longitude == 0 {
+	if location.Latitude == 0 || location.Longitude == 0 {
 		return 0, errors.New("a valid location is required")
 	}
 
@@ -262,8 +262,8 @@ func (c *MeshtasticClient) SendMapReport(from meshid.NodeID, longName, shortName
 	preset := pb.Config_LoRaConfig_ModemPreset_value[defChanSnake]
 	_, hasDefaultChannel := c.channelKeyStrings[c.primaryChannel]
 
-	latI := int32(latitude * 1e7)
-	lonI := int32(longitude * 1e7)
+	latI := int32(location.Latitude * 1e7)
+	lonI := int32(location.Longitude * 1e7)
 
 	nodeInfo := pb.MapReport{
 		LongName:            longName,
@@ -275,9 +275,11 @@ func (c *MeshtasticClient) SendMapReport(from meshid.NodeID, longName, shortName
 		HasDefaultChannel:   hasDefaultChannel,
 		LatitudeI:           latI,
 		LongitudeI:          lonI,
-		Altitude:            altitude,
-		PositionPrecision:   c.GetPrecisionBits(&accuracy),
+		PositionPrecision:   c.GetPrecisionBits(location.Uncertainty),
 		NumOnlineLocalNodes: numNodes,
+	}
+	if location.Altitude != nil {
+		nodeInfo.Altitude = int32(*location.Altitude)
 	}
 
 	return c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
