@@ -13,6 +13,7 @@ const (
 	// Rates are the standard defaults with a slight offset
 	// https://pole1.co.uk/broadcastcalc/
 	rateTelemetry    time.Duration = (1 * time.Hour) + (5 * time.Second)
+	rateHostInfo     time.Duration = (1 * time.Hour) + (1 * time.Minute) + (7 * time.Second)
 	rateNodeInfo     time.Duration = (3 * time.Hour) + (13 * time.Second)
 	ratePosition     time.Duration = (3 * time.Hour) + (26 * time.Second)
 	rateNeighborInfo time.Duration = (6 * time.Hour) + (31 * time.Second)
@@ -25,7 +26,9 @@ func (mc *MeshtasticConnector) RunNodeInfoTask(ctx context.Context) error {
 	go func() {
 		mc.sendPeriodicNodeInfo(ctx)
 		mc.sendPeriodicTelemetry(ctx)
+		mc.sendPeriodicHostInfo(ctx)
 		tickerTele := time.Tick(rateTelemetry)
+		tickerHost := time.Tick(rateHostInfo)
 		tickerNodeInfo := time.Tick(rateNodeInfo)
 		tickerNeighbors := time.Tick(rateNeighborInfo)
 		for {
@@ -35,6 +38,8 @@ func (mc *MeshtasticConnector) RunNodeInfoTask(ctx context.Context) error {
 				return
 			case <-tickerTele:
 				mc.sendPeriodicTelemetry(ctx)
+			case <-tickerHost:
+				mc.sendPeriodicHostInfo(ctx)
 			case <-tickerNodeInfo:
 				mc.sendPeriodicNodeInfo(ctx)
 			case <-tickerNeighbors:
@@ -45,8 +50,17 @@ func (mc *MeshtasticConnector) RunNodeInfoTask(ctx context.Context) error {
 	return nil
 }
 
+func (c *MeshtasticConnector) sendPeriodicHostInfo(ctx context.Context) {
+	err := c.meshClient.SendHostMetrics(c.GetBaseNodeID(), meshid.BROADCAST_ID)
+	if err != nil {
+		c.log.Err(err).Msg("Unable to send host metrics")
+		return
+	}
+}
+
 func (c *MeshtasticConnector) sendPeriodicTelemetry(ctx context.Context) {
 	c.meshClient.SendTelemetry(c.GetBaseNodeID(), meshid.BROADCAST_ID)
+
 	c.doForAllManagedGhosts(ctx, func(nodeID meshid.NodeID, meta *meshid.GhostMetadata) {
 		c.log.Info().
 			Str("long_name", meta.LongName).
@@ -54,6 +68,8 @@ func (c *MeshtasticConnector) sendPeriodicTelemetry(ctx context.Context) {
 			Msg("Broadcasting periodic telemetry")
 		c.meshClient.SendTelemetry(nodeID, meshid.BROADCAST_ID)
 	})
+	// Offset things a tad so we don't overload the mesh
+	c.meshClient.SendHostMetrics(c.GetBaseNodeID(), meshid.BROADCAST_ID)
 }
 
 func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {

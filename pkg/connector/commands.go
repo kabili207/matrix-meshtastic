@@ -116,15 +116,21 @@ func fnNodeInfo(ce *commands.Event) {
 	//}
 
 	userMXID := ce.User.MXID
+
+	//if len(ce.Args) > 0 {
+	//	if parsedID, err := meshid.ParseNodeID(ce.Args[0]); err == nil {
+	//		userMXID = meshid.MakeUserID(parsedID)
+	//	}
+	//}
+
 	nodeID := meshid.MXIDToNodeID(userMXID)
 
-	if ghost, err := ce.Bridge.GetGhostByID(ce.Ctx, meshid.MakeUserID(nodeID)); err != nil {
-		ce.Log.Err(err).Msg("Get Matrix user node info")
-		ce.Reply("Failed to join channel: %v", err)
-
+	if ghost, err := ce.Bridge.GetExistingGhostByID(ce.Ctx, meshid.MakeUserID(nodeID)); err != nil {
+		ce.Log.Err(err).Msg("Unable to find existing ghost for node")
+		ce.Reply("Failed to fetch node info: %v", err)
 	} else if mxUser, err := ce.Bridge.Matrix.GetMemberInfo(ce.Ctx, ce.RoomID, userMXID); err != nil {
-		ce.Log.Err(err).Msg("Get Matrix user node info")
-		ce.Reply("Failed to join channel: %v", err)
+		ce.Log.Err(err).Msg("Unable to get matrix member info")
+		ce.Reply("Failed to fetch user info: %v", err)
 	} else {
 		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
 		if !ok {

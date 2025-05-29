@@ -7,6 +7,10 @@ import (
 	"github.com/iancoleman/strcase"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
+	"github.com/shirou/gopsutil/v4/disk"
+	"github.com/shirou/gopsutil/v4/host"
+	"github.com/shirou/gopsutil/v4/load"
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
 func (c *MeshtasticClient) SendMessage(from, to meshid.NodeID, channel string, message string, usePKI bool) (uint32, error) {
@@ -109,6 +113,53 @@ func (c *MeshtasticClient) SendTelemetry(from, to meshid.NodeID) error {
 	}
 
 	_, err := c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
+		PortNum:   pb.PortNum_TELEMETRY_APP,
+		Encrypted: PSKEncryption,
+		From:      from,
+		To:        to,
+	})
+	return err
+}
+
+func (c *MeshtasticClient) SendHostMetrics(from, to meshid.NodeID) error {
+
+	now := time.Now()
+	now = now.UTC()
+
+	meminfo, err := mem.VirtualMemory()
+	if err != nil {
+		return err
+	}
+	loadAvg, err := load.Avg()
+	if err != nil {
+		return err
+	}
+
+	uptime, err := host.Uptime()
+	if err != nil {
+		return err
+	}
+
+	diskUsage, err := disk.Usage("/")
+	if err != nil {
+		return err
+	}
+
+	nodeInfo := pb.Telemetry{
+		Time: uint32(now.Unix()),
+		Variant: &pb.Telemetry_HostMetrics{
+			HostMetrics: &pb.HostMetrics{
+				UptimeSeconds:  uint32(uptime),
+				Load1:          uint32(loadAvg.Load1 * 100),
+				Load5:          uint32(loadAvg.Load5 * 100),
+				Load15:         uint32(loadAvg.Load15 * 100),
+				FreememBytes:   meminfo.Available,
+				Diskfree1Bytes: diskUsage.Free,
+			},
+		},
+	}
+
+	_, err = c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
 		PortNum:   pb.PortNum_TELEMETRY_APP,
 		Encrypted: PSKEncryption,
 		From:      from,
