@@ -79,10 +79,28 @@ func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 		c.log.Err(err).Msg("Unable to fetch ghosts")
 		return
 	}
+
+	directNeighbors, err := c.bridge.DB.Ghost.GetByMetadata(ctx, "direct_neighbor", true)
+	if err != nil {
+		c.log.Err(err).Msg("Unable to fetch ghosts")
+		return
+	}
+
 	nodeIDs := []meshid.NodeID{c.GetBaseNodeID()}
 	for _, g := range ghosts {
 		if meta, ok := g.Metadata.(*meshid.GhostMetadata); ok {
+
 			nodeIDs = append(nodeIDs, meshid.MXIDToNodeID(id.UserID(meta.UserMXID)))
+		}
+	}
+
+	maxAge := time.Now().UTC().Add(-2 * rateNeighborInfo)
+
+	for _, g := range directNeighbors {
+		if meta, ok := g.Metadata.(*meshid.GhostMetadata); ok && meta.LastSeen != nil && meta.LastSeen.After(maxAge) {
+			if id, err := meshid.ParseNodeID(string(g.ID)); err == nil {
+				nodeIDs = append(nodeIDs, id)
+			}
 		}
 	}
 	c.meshClient.SendNeighborInfo(c.GetBaseNodeID(), nodeIDs)

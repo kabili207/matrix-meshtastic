@@ -1,8 +1,10 @@
 package mesh
 
 import (
+	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh/connectors"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
@@ -41,6 +43,8 @@ func (c *MeshtasticClient) handleTraceroute(packet connectors.NetworkMeshPacket,
 	}
 
 	c.appendMyIdAndSnr(disco, isTowardsDestination, true)
+
+	c.logRoute(disco, packet.From, packet.To)
 
 	c.sendProtoMessage(packet.ChannelName, disco, PacketInfo{
 		PortNum:   pb.PortNum_TRACEROUTE_APP,
@@ -139,4 +143,30 @@ func (c *MeshtasticClient) appendMyIdAndSnr(disco *pb.RouteDiscovery, isTowardsD
 		}
 	}
 
+}
+
+func (c *MeshtasticClient) logRoute(r *pb.RouteDiscovery, origin, dest uint32) {
+	var route strings.Builder
+
+	route.WriteString(fmt.Sprintf("0x%x --> ", origin))
+
+	for i := 0; i < len(r.Route); i++ {
+		if i < len(r.SnrTowards) && r.SnrTowards[i] != math.MinInt8 {
+			route.WriteString(fmt.Sprintf("0x%x (%.2fdB) --> ", r.Route[i], float32(r.SnrTowards[i])/4))
+		} else {
+			route.WriteString(fmt.Sprintf("0x%x (?dB) --> ", r.Route[i]))
+		}
+	}
+
+	if len(r.SnrTowards) > 0 && r.SnrTowards[len(r.SnrTowards)-1] != math.MinInt8 {
+		route.WriteString(fmt.Sprintf("0x%x (%.2fdB)", dest, float32(r.SnrTowards[len(r.SnrTowards)-1])/4))
+	} else {
+		route.WriteString(fmt.Sprintf("0x%x (?dB)", dest))
+	}
+
+	log := c.log.With().
+		Stringer("from", meshid.NodeID(origin)).
+		Stringer("to", meshid.NodeID(dest)).
+		Str("route", route.String()).Logger()
+	log.Info().Msg("Traceroute request received")
 }

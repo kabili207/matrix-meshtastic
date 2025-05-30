@@ -13,11 +13,12 @@ type PortalMetadata struct {
 	ChannelKey  *string `json:"channel_key"`
 }
 type GhostMetadata struct {
-	LongName   string         `json:"long_name"`
-	ShortName  string         `json:"short_name"`
-	UserMXID   string         `json:"user_mxid,omitempty"`
-	IsManaged  bool           `json:"is_managed"`
-	LastSeen   *jsontime.Unix `json:"last_seen,omitempty"`
-	PublicKey  []byte         `json:"public_key,omitempty"`
-	PrivateKey []byte         `json:"private_key,omitempty"`
+	LongName         string         `json:"long_name"`
+	ShortName        string         `json:"short_name"`
+	UserMXID         string         `json:"user_mxid,omitempty"`
+	IsManaged        bool           `json:"is_managed"`
+	IsDirectNeighbor bool           `json:"direct_neighbor"`
+	LastSeen         *jsontime.Unix `json:"last_seen,omitempty"`
+	PublicKey        []byte         `json:"public_key,omitempty"`
+	PrivateKey       []byte         `json:"private_key,omitempty"`
 }

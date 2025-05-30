@@ -11,6 +11,7 @@ type MeshEvent struct {
 	Timestamp   uint32
 	PacketId    uint32
 	WantAck     bool
+	IsNeighbor  bool
 }
 
 type MeshMessageEvent struct {

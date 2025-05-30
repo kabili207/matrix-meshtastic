@@ -6,13 +6,13 @@
     * [ ] ~~Media/files~~ (not supported by Meshtastic)
     * [x] Location messages (sent as location update to primary channel)
   * [x] Reactions
-  * [ ] Initial room metadata
+  * [ ] ~~Initial room metadata~~ (not applicable)
 * Meshtastic → Matrix
   * [x] Message content
     * [x] Plain text
     * [ ] ~~Formatted messages~~ (not supported by Meshtastic)
     * [ ] ~~Media/files~~ (not supported by Meshtastic)
-    * [ ] Location messages (processed but ignored for now)
+    * [ ] Location messages (pending support from Mautrix via MSC3489/MSC3672)
     * [ ] Waypoint messages
   * [x] Chat types
     * [x] Channels

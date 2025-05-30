@@ -50,14 +50,14 @@ func (c *MeshtasticClient) handleMeshPacket(packet connectors.NetworkMeshPacket)
 	var err error
 
 	if c.shouldUsePKIDecryption(packet) {
-		data, err = c.tryDecryptPKI(packet)
+		data, err = c.tryDecryptPKI(&packet)
 		if err != nil {
 			log.Warn().AnErr("error", err).Msg("failed to decrypt as PKI packet")
 		}
 	}
 
 	if data == nil {
-		data, err = c.tryDecryptPSK(packet)
+		data, err = c.tryDecryptPSK(&packet)
 		if err != nil {
 			log.Err(err).Msg("failed to decrypt the message packet")
 			return
@@ -84,10 +84,9 @@ func (c *MeshtasticClient) shouldUsePKIDecryption(packet connectors.NetworkMeshP
 	return packet.Channel == 0 && packet.To > 0 &&
 		meshid.NodeID(packet.To) != meshid.BROADCAST_ID &&
 		c.managedNodeFunc(meshid.NodeID(packet.To))
-
 }
 
-func (c *MeshtasticClient) tryDecryptPKI(packet connectors.NetworkMeshPacket) (*pb.Data, error) {
+func (c *MeshtasticClient) tryDecryptPKI(packet *connectors.NetworkMeshPacket) (*pb.Data, error) {
 	toNode := meshid.NodeID(packet.To)
 	fromNode := meshid.NodeID(packet.From)
 
@@ -105,7 +104,7 @@ func (c *MeshtasticClient) tryDecryptPKI(packet connectors.NetworkMeshPacket) (*
 	return radio.TryDecodePKI(packet.MeshPacket, pubKey, privKey)
 }
 
-func (c *MeshtasticClient) tryDecryptPSK(packet connectors.NetworkMeshPacket) (*pb.Data, error) {
+func (c *MeshtasticClient) tryDecryptPSK(packet *connectors.NetworkMeshPacket) (*pb.Data, error) {
 	packet.ChannelName = c.getChannelNameFromHash(packet.Channel)
 	if packet.ChannelName == "" {
 		return nil, fmt.Errorf("unknown channel hash: %d", packet.Channel)
@@ -144,6 +143,7 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 		ChannelKey:  &chanKey,
 		Timestamp:   packet.RxTime,
 		WantAck:     packet.WantAck,
+		IsNeighbor:  packet.Source != connectors.PacketSourceMQTT && packet.HopStart == packet.HopLimit,
 	}
 	var err error
 	var evt any = meshEventEnv

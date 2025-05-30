@@ -48,7 +48,7 @@ func (c *MeshtasticClient) handleMeshEvent(rawEvt any) {
 func (c *MeshtasticConnector) handleUnknownPacket(evt *mesh.MeshEvent) {
 	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
 	userInfo := &bridgev2.UserInfo{
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt),
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt(evt.IsNeighbor)),
 	}
 	ghost.UpdateInfo(context.Background(), userInfo)
 }
@@ -65,7 +65,7 @@ func (c *MeshtasticConnector) handleMeshLocation(evt *mesh.MeshLocationEvent) {
 
 	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
 	userInfo := &bridgev2.UserInfo{
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt),
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt(evt.IsNeighbor)),
 	}
 	ghost.UpdateInfo(context.Background(), userInfo)
 }
@@ -144,7 +144,7 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 
 	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)
 	userInfo := &bridgev2.UserInfo{
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt),
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt(evt.IsNeighbor)),
 	}
 	ghost.UpdateInfo(context.Background(), userInfo)
 }
@@ -244,7 +244,7 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 		Name:         &evt.LongName,
 		IsBot:        ptr.Ptr(false),
 		Identifiers:  []string{},
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostNames(evt.LongName, evt.ShortName), c.updateGhostPublicKey(evt.PublicKey), updateGhostLastSeenAt),
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostNames(evt.LongName, evt.ShortName), c.updateGhostPublicKey(evt.PublicKey), updateGhostLastSeenAt(evt.IsNeighbor)),
 	}
 	ghost.UpdateInfo(ctx, userInfo)
 	log.
@@ -299,10 +299,13 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 	}
 }
 
-func updateGhostLastSeenAt(_ context.Context, ghost *bridgev2.Ghost) bool {
-	meta := ghost.Metadata.(*meshid.GhostMetadata)
-	meta.LastSeen = ptr.Ptr(jsontime.UnixNow())
-	return true
+func updateGhostLastSeenAt(isDirectNeighbor bool) bridgev2.ExtraUpdater[*bridgev2.Ghost] {
+	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
+		meta := ghost.Metadata.(*meshid.GhostMetadata)
+		meta.LastSeen = ptr.Ptr(jsontime.UnixNow())
+		meta.IsDirectNeighbor = isDirectNeighbor
+		return true
+	}
 }
 
 func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
@@ -350,7 +353,7 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 
 	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)
 	userInfo := &bridgev2.UserInfo{
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt),
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt(evt.IsNeighbor)),
 	}
 	ghost.UpdateInfo(context.Background(), userInfo)
 }
@@ -370,7 +373,7 @@ func (c *MeshtasticConnector) handleMeshWaypoint(evt *mesh.MeshWaypointEvent) {
 
 	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
 	userInfo := &bridgev2.UserInfo{
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt),
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt(evt.IsNeighbor)),
 	}
 	ghost.UpdateInfo(context.Background(), userInfo)
 	// TODO: Save these somewhere and allow other users to retrieve them later?

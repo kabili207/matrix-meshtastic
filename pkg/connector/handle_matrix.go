@@ -192,7 +192,7 @@ func (c *MeshtasticClient) updateGhostSenderID(mxid id.UserID) func(context.Cont
 	}
 }
 
-func (c *MeshtasticConnector) updateGhostNames(longName, shortName string) func(context.Context, *bridgev2.Ghost) bool {
+func (c *MeshtasticConnector) updateGhostNames(longName, shortName string) bridgev2.ExtraUpdater[*bridgev2.Ghost] {
 	return func(ctx context.Context, ghost *bridgev2.Ghost) bool {
 		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
 		if !ok {

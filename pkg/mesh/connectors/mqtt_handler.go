@@ -120,6 +120,8 @@ func (c *mqttMessageHandler) handleMQTTMessage(m mqtt.Message) {
 	packet := env.GetPacket()
 	gateway, _ := meshid.ParseNodeID(env.GatewayId)
 
+	// Artificially delay incoming MQTT packets in favor of other transports
+	time.Sleep(500 * time.Millisecond)
 	c.handleMeshPacket(NetworkMeshPacket{
 		MeshPacket:  packet,
 		GatewayNode: gateway,
