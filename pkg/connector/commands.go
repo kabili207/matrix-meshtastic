@@ -7,6 +7,8 @@ import (
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"maunium.net/go/mautrix/bridgev2/commands"
+	"maunium.net/go/mautrix/bridgev2/matrix"
+	"maunium.net/go/mautrix/id"
 )
 
 var (
@@ -110,20 +112,34 @@ func fnUpdateNames(ce *commands.Event) {
 
 func fnNodeInfo(ce *commands.Event) {
 
-	//if len(ce.Args) < 2 {
-	//	ce.Reply("**Usage:** `$cmdprefix <short name> <long name>`")
-	//	return
-	//}
-
 	userMXID := ce.User.MXID
+	isMeshNode := false
 
-	//if len(ce.Args) > 0 {
-	//	if parsedID, err := meshid.ParseNodeID(ce.Args[0]); err == nil {
-	//		userMXID = meshid.MakeUserID(parsedID)
-	//	}
-	//}
+	if len(ce.Args) > 0 {
+		ce.Log.Debug().Msg(ce.Args[0])
+
+		if parsedID, err := meshid.ParseNodeID(ce.Args[0]); err == nil {
+			uid := meshid.MakeUserID(parsedID)
+			if conn, ok := ce.Bridge.Matrix.(*matrix.Connector); ok {
+				userMXID = conn.FormatGhostMXID(uid)
+				isMeshNode = true
+			}
+		} else {
+			mtxID := id.UserID(ce.Args[0])
+			if _, _, err := mtxID.ParseAndValidate(); err == nil {
+				userMXID = mtxID
+			}
+		}
+	}
 
 	nodeID := meshid.MXIDToNodeID(userMXID)
+	if gid, ok := ce.Bridge.Matrix.ParseGhostMXID(userMXID); ok {
+		nodeID, _ = meshid.ParseUserID(gid)
+		isMeshNode = true
+	}
+
+	// Just so it's marked as used for now
+	_ = isMeshNode
 
 	if ghost, err := ce.Bridge.GetExistingGhostByID(ce.Ctx, meshid.MakeUserID(nodeID)); err != nil {
 		ce.Log.Err(err).Msg("Unable to find existing ghost for node")
@@ -132,6 +148,15 @@ func fnNodeInfo(ce *commands.Event) {
 		ce.Log.Err(err).Msg("Unable to get matrix member info")
 		ce.Reply("Failed to fetch user info: %v", err)
 	} else {
+
+		if ghost == nil {
+			if conn, ok := ce.Bridge.Network.(*MeshtasticConnector); ok {
+				conn.requestGhostNodeInfo(meshid.MakeUserID(nodeID))
+			}
+			ce.Reply("Uknown node %s", nodeID)
+			return
+		}
+
 		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
 		if !ok {
 			meta = &meshid.GhostMetadata{}
@@ -149,7 +174,7 @@ func fnNodeInfo(ce *commands.Event) {
 		if len(meta.PublicKey) > 0 {
 			pubKey = fmt.Sprintf("`%s`", base64.StdEncoding.EncodeToString(meta.PublicKey))
 		}
-		ce.Reply("Below is your node info on Meshtastic\n**Node ID:** %s\n**Long Name:** %s\n**Short Name:** %s\n**Public Key:** %s", nodeID, longName, shortName, pubKey)
+		ce.Reply("**Node ID:** %s\n**Long Name:** %s\n**Short Name:** %s\n**Public Key:** %s", nodeID, longName, shortName, pubKey)
 	}
 
 }
