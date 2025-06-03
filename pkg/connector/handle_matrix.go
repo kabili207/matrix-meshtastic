@@ -366,7 +366,18 @@ func (c *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridge
 }
 
 func (c *MeshtasticClient) UpdateLastSeenDate(ctx context.Context, sender id.UserID) {
-	// TODO: Cache last seen date in bridge
+	if c.bridge.IsGhostMXID(sender) {
+		return
+	}
+	uid := meshid.MakeUserID(meshid.MXIDToNodeID(sender))
+	ghost, err := c.bridge.GetGhostByID(ctx, uid)
+	if err != nil {
+		return
+	}
+	userInfo := &bridgev2.UserInfo{
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt(true)),
+	}
+	ghost.UpdateInfo(ctx, userInfo)
 }
 
 func (mc *MeshtasticClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.MatrixMembershipChange) (bool, error) {

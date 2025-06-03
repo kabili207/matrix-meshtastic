@@ -118,6 +118,10 @@ func (c *mqttMessageHandler) handleMQTTMessage(m mqtt.Message) {
 		return
 	}
 	packet := env.GetPacket()
+	if packet == nil {
+		log.Error().Msg("Received nil packet")
+		return
+	}
 	gateway, _ := meshid.ParseNodeID(env.GatewayId)
 
 	// Artificially delay incoming MQTT packets in favor of other transports

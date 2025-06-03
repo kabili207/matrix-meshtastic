@@ -36,11 +36,14 @@ func (c *MeshtasticClient) handleMeshPacket(packet connectors.NetworkMeshPacket)
 		Stringer("via", gateway).
 		Logger()
 
+	c.packetCacheLock.Lock()
 	if c.isDuplicatePacket(packet) {
+		c.packetCacheLock.Unlock()
 		log.Debug().Msg("Ignoring duplicate packet")
 		return
 	}
 	c.cachePacket(packet)
+	c.packetCacheLock.Unlock()
 
 	if c.managedNodeFunc(meshid.NodeID(packet.From)) {
 		return

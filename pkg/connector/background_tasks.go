@@ -74,26 +74,13 @@ func (c *MeshtasticConnector) sendPeriodicTelemetry(ctx context.Context) {
 
 func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 
-	ghosts, err := c.bridge.DB.Ghost.GetByMetadata(ctx, "is_managed", true)
-	if err != nil {
-		c.log.Err(err).Msg("Unable to fetch ghosts")
-		return
-	}
-
 	directNeighbors, err := c.bridge.DB.Ghost.GetByMetadata(ctx, "direct_neighbor", true)
 	if err != nil {
-		c.log.Err(err).Msg("Unable to fetch ghosts")
+		c.log.Err(err).Msg("Unable to fetch bridge neighbors")
 		return
 	}
 
 	nodeIDs := []meshid.NodeID{c.GetBaseNodeID()}
-	for _, g := range ghosts {
-		if meta, ok := g.Metadata.(*meshid.GhostMetadata); ok {
-
-			nodeIDs = append(nodeIDs, meshid.MXIDToNodeID(id.UserID(meta.UserMXID)))
-		}
-	}
-
 	maxAge := time.Now().UTC().Add(-2 * rateNeighborInfo)
 
 	for _, g := range directNeighbors {
@@ -104,13 +91,6 @@ func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 		}
 	}
 	c.meshClient.SendNeighborInfo(c.GetBaseNodeID(), nodeIDs)
-	//c.doForAllManagedGhosts(ctx, func(nodeID meshid.NodeID, meta *meshid.GhostMetadata) {
-	//	c.log.Info().
-	//		Str("long_name", meta.LongName).
-	//		Stringer("node_id", nodeID).
-	//		Msg("Broadcasting periodic neighbor info")
-	//	c.meshClient.SendNeighborInfo(nodeID, nodeIDs)
-	//})
 }
 
 func (c *MeshtasticConnector) sendPeriodicNodeInfo(ctx context.Context) {
@@ -132,8 +112,10 @@ func (c *MeshtasticConnector) doForAllManagedGhosts(ctx context.Context, callbac
 		return
 	}
 
+	maxAge := time.Now().UTC().Add(-7 * 24 * time.Hour)
+
 	for _, g := range ghosts {
-		if meta, ok := g.Metadata.(*meshid.GhostMetadata); ok && meta.UserMXID != "" {
+		if meta, ok := g.Metadata.(*meshid.GhostMetadata); ok && meta.UserMXID != "" && meta.LastSeen != nil && meta.LastSeen.After(maxAge) {
 			waitTime := rand.N(300 * time.Second)
 			go func(delay time.Duration, m *meshid.GhostMetadata) {
 				select {

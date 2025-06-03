@@ -57,6 +57,7 @@ type MeshtasticClient struct {
 	privKeyRequestHandler KeyRequestFunc
 
 	packetCache       *ttlcache.Cache[uint64, any]
+	packetCacheLock   sync.Mutex
 	nodeInfoSendCache map[meshid.NodeID]time.Time
 
 	meshConnectors []connectors.MeshConnector
