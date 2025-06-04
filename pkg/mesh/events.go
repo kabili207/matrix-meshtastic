@@ -54,3 +54,12 @@ type MeshChannelJoined struct {
 	ChannelID  string
 	ChannelKey *string
 }
+
+type MeshMapReportEvent struct {
+	MeshEvent
+	Location         meshid.GeoURI
+	ShortName        string
+	LongName         string
+	FirmwareVersion  string
+	OnlineLocalNodes uint32
+}

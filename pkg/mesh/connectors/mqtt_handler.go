@@ -157,6 +157,7 @@ func (c *mqttMessageHandler) onMqttConnected() {
 	if isReconnect {
 		c.emitStateEvent(EventRestarted)
 	} else {
+		c.mqttClient.HandleMap(c.handleMQTTMessage)
 		c.emitStateEvent(EventStarted)
 	}
 }

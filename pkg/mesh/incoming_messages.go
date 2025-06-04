@@ -201,6 +201,27 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 			}
 		}
 
+	case pb.PortNum_MAP_REPORT_APP:
+		var pos = pb.MapReport{}
+		proto.Unmarshal(message.Payload, &pos)
+		alt := (*float32)(nil)
+		if pos.Altitude != 0 {
+			alt = ptr.Ptr(float32(pos.Altitude))
+		}
+		evt = &MeshMapReportEvent{
+			MeshEvent:        meshEventEnv,
+			LongName:         pos.LongName,
+			ShortName:        pos.ShortName,
+			FirmwareVersion:  pos.FirmwareVersion,
+			OnlineLocalNodes: pos.NumOnlineLocalNodes,
+			Location: meshid.GeoURI{
+				Latitude:    float32(pos.LatitudeI) * 1e-7,
+				Longitude:   float32(pos.LongitudeI) * 1e-7,
+				Altitude:    alt,
+				Uncertainty: ptr.Ptr(float32(GetPositionPrecisionInMeters(pos.PositionPrecision))),
+			},
+		}
+
 	case pb.PortNum_TRACEROUTE_APP:
 		var r = pb.RouteDiscovery{}
 		err = proto.Unmarshal(message.Payload, &r)
