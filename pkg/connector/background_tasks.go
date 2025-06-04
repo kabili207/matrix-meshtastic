@@ -11,9 +11,9 @@ import (
 
 const (
 	// Rates are the standard defaults with a slight offset
-	// https://pole1.co.uk/broadcastcalc/
-	rateTelemetry    time.Duration = (1 * time.Hour) + (5 * time.Second)
-	rateHostInfo     time.Duration = (1 * time.Hour) + (1 * time.Minute) + (7 * time.Second)
+	// https://github.com/meshtastic/firmware/blob/master/src/mesh/Default.h
+	rateTelemetry    time.Duration = (6 * time.Hour) + (5 * time.Second)
+	rateHostInfo     time.Duration = (12 * time.Hour) + (7 * time.Second) // Only sent by bridge, which is a router
 	rateNodeInfo     time.Duration = (3 * time.Hour) + (13 * time.Second)
 	ratePosition     time.Duration = (3 * time.Hour) + (26 * time.Second)
 	rateNeighborInfo time.Duration = (6 * time.Hour) + (31 * time.Second)
@@ -25,29 +25,33 @@ func init() {
 func (mc *MeshtasticConnector) RunNodeInfoTask(ctx context.Context) error {
 	go func() {
 		mc.sendPeriodicNodeInfo(ctx)
-		mc.sendPeriodicTelemetry(ctx)
-		mc.sendPeriodicHostInfo(ctx)
-		tickerTele := time.Tick(rateTelemetry)
-		tickerHost := time.Tick(rateHostInfo)
-		tickerNodeInfo := time.Tick(rateNodeInfo)
-		tickerNeighbors := time.Tick(rateNeighborInfo)
+		tickerTele := time.NewTicker(rateTelemetry)
+		tickerHost := time.NewTicker(rateHostInfo)
+		tickerNodeInfo := time.NewTicker(rateNodeInfo)
+		tickerNeighbors := time.NewTicker(rateNeighborInfo)
 		for {
 			select {
 			case <-ctx.Done():
 				mc.log.Err(ctx.Err()).Msg("Stopping node info task")
 				return
-			case <-tickerTele:
+			case <-tickerTele.C:
 				mc.sendPeriodicTelemetry(ctx)
-			case <-tickerHost:
+			case <-tickerHost.C:
 				mc.sendPeriodicHostInfo(ctx)
-			case <-tickerNodeInfo:
+			case <-tickerNodeInfo.C:
 				mc.sendPeriodicNodeInfo(ctx)
-			case <-tickerNeighbors:
+			case <-tickerNeighbors.C:
 				mc.sendPeriodicNeighborInfo(ctx)
 			}
 		}
 	}()
 	return nil
+}
+
+func (c *MeshtasticConnector) throttleDuration(d time.Duration) time.Duration {
+	// TODO: consult the firmware to apply throttling measures if needed
+	// https://github.com/meshtastic/firmware/blob/master/src/mesh/Default.h
+	return d
 }
 
 func (c *MeshtasticConnector) sendPeriodicHostInfo(ctx context.Context) {
