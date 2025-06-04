@@ -49,21 +49,24 @@ func (c *MeshtasticClient) handleMeshPacket(packet connectors.NetworkMeshPacket)
 		return
 	}
 
-	var data *pb.Data
 	var err error
 
-	if c.shouldUsePKIDecryption(packet) {
-		data, err = c.tryDecryptPKI(&packet)
-		if err != nil {
-			log.Warn().AnErr("error", err).Msg("failed to decrypt as PKI packet")
-		}
-	}
+	data := packet.GetDecoded()
 
 	if data == nil {
-		data, err = c.tryDecryptPSK(&packet)
-		if err != nil {
-			log.Err(err).Msg("failed to decrypt the message packet")
-			return
+		if c.shouldUsePKIDecryption(packet) {
+			data, err = c.tryDecryptPKI(&packet)
+			if err != nil {
+				log.Warn().AnErr("error", err).Msg("failed to decrypt as PKI packet")
+			}
+		}
+
+		if data == nil {
+			data, err = c.tryDecryptPSK(&packet)
+			if err != nil {
+				log.Err(err).Msg("failed to decrypt the message packet")
+				return
+			}
 		}
 	}
 
