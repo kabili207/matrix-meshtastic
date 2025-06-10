@@ -209,6 +209,19 @@ func (c *MeshtasticConnector) updateGhostNames(longName, shortName string) bridg
 	}
 }
 
+func (c *MeshtasticConnector) updateMiscGhostMeta(isLicensed bool, isUnmessagable *bool) bridgev2.ExtraUpdater[*bridgev2.Ghost] {
+	return func(ctx context.Context, ghost *bridgev2.Ghost) bool {
+		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
+		if !ok {
+			meta = &meshid.GhostMetadata{}
+		}
+		forceSave := meta.IsLicensed != isLicensed || meta.IsUnmessagable != isUnmessagable
+		meta.IsLicensed = isLicensed
+		meta.IsUnmessagable = isUnmessagable
+		return forceSave
+	}
+}
+
 func (c *MeshtasticConnector) updateDMPortalInfo(ctx context.Context, ghost *bridgev2.Ghost) {
 	portals, err := c.bridge.GetDMPortalsWith(ctx, ghost.ID)
 	if err != nil {

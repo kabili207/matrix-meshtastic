@@ -45,9 +45,11 @@ type MeshWaypointEvent struct {
 
 type MeshNodeInfoEvent struct {
 	MeshEvent
-	ShortName string
-	LongName  string
-	PublicKey []byte
+	ShortName      string
+	LongName       string
+	IsLicensed     bool
+	PublicKey      []byte
+	IsUnmessagable *bool
 }
 
 type MeshChannelJoined struct {

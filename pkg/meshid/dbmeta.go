@@ -18,6 +18,8 @@ type GhostMetadata struct {
 	UserMXID         string         `json:"user_mxid,omitempty"`
 	IsManaged        bool           `json:"is_managed"`
 	IsDirectNeighbor bool           `json:"direct_neighbor"`
+	IsLicensed       bool           `json:"is_licensed"`
+	IsUnmessagable   *bool          `json:"is_unmessagable,omitempty"`
 	LastSeen         *jsontime.Unix `json:"last_seen,omitempty"`
 	PublicKey        []byte         `json:"public_key,omitempty"`
 	PrivateKey       []byte         `json:"private_key,omitempty"`

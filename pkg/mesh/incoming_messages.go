@@ -174,10 +174,12 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 		var user = pb.User{}
 		proto.Unmarshal(message.Payload, &user)
 		evt = &MeshNodeInfoEvent{
-			MeshEvent: meshEventEnv,
-			LongName:  user.LongName,
-			ShortName: user.ShortName,
-			PublicKey: user.PublicKey,
+			MeshEvent:      meshEventEnv,
+			LongName:       user.LongName,
+			ShortName:      user.ShortName,
+			PublicKey:      user.PublicKey,
+			IsLicensed:     user.IsLicensed,
+			IsUnmessagable: user.IsUnmessagable,
 		}
 
 	case pb.PortNum_POSITION_APP:

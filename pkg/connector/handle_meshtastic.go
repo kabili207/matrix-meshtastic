@@ -241,10 +241,15 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 	}
 
 	userInfo := &bridgev2.UserInfo{
-		Name:         &evt.LongName,
-		IsBot:        ptr.Ptr(false),
-		Identifiers:  []string{},
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostNames(evt.LongName, evt.ShortName), c.updateGhostPublicKey(evt.PublicKey), updateGhostLastSeenAt(evt.IsNeighbor)),
+		Name:        &evt.LongName,
+		IsBot:       ptr.Ptr(false),
+		Identifiers: []string{},
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(
+			c.updateGhostNames(evt.LongName, evt.ShortName),
+			c.updateGhostPublicKey(evt.PublicKey),
+			c.updateMiscGhostMeta(evt.IsLicensed, evt.IsUnmessagable),
+			updateGhostLastSeenAt(evt.IsNeighbor),
+		),
 	}
 	ghost.UpdateInfo(ctx, userInfo)
 	log.
