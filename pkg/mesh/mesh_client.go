@@ -354,6 +354,10 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		Emoji:     uint32(emojiVal),
 	}
 
+	if info.WantAck && info.To != meshid.BROADCAST_ID && (info.PortNum == pb.PortNum_NODEINFO_APP || info.PortNum == pb.PortNum_POSITION_APP) {
+		data.WantResponse = true
+	}
+
 	now := time.Now()
 	time := uint32(now.Unix())
 
