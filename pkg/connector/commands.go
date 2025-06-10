@@ -22,6 +22,7 @@ var cmdJoinChannel = &commands.FullHandler{
 	Help: commands.HelpMeta{
 		Section:     HelpSectionChannels,
 		Description: "Joins a Meshtastic channel with the supplied encryption key",
+		Args:        "<_channel name_> <_channel key_>",
 	},
 	RequiresLogin:  true,
 	RequiresPortal: false,
@@ -33,6 +34,7 @@ var cmdUpdateNames = &commands.FullHandler{
 	Help: commands.HelpMeta{
 		Section:     HelpSectionNode,
 		Description: "Updates the long and short names shown to Meshtastic users",
+		Args:        "<_short name_> <_long name_>",
 	},
 	RequiresLogin:  false,
 	RequiresPortal: false,
@@ -43,7 +45,8 @@ var cmdNodeInfo = &commands.FullHandler{
 	Name: "info",
 	Help: commands.HelpMeta{
 		Section:     HelpSectionNode,
-		Description: "Displays info about your Meshtastic node",
+		Description: "Displays info about a Meshtastic node",
+		Args:        "[_node ID_]",
 	},
 	RequiresLogin:  false,
 	RequiresPortal: false,
@@ -153,7 +156,7 @@ func fnNodeInfo(ce *commands.Event) {
 			if conn, ok := ce.Bridge.Network.(*MeshtasticConnector); ok {
 				conn.requestGhostNodeInfo(meshid.MakeUserID(nodeID))
 			}
-			ce.Reply("Uknown node %s", nodeID)
+			ce.Reply("Unknown node %s. Sending request to mesh", nodeID)
 			return
 		}
 
