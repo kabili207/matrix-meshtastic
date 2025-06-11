@@ -130,6 +130,19 @@ func (c *MeshtasticClient) requestKey(nodeID meshid.NodeID, handler KeyRequestFu
 	return radio.ParseKey(*keyString)
 }
 
+// isUnmessagable indicates if a particular node is either flagged or has a role that is unable to receive messages
+func isUnmessagable(user *pb.User) bool {
+	// https://github.com/meshtastic/Meshtastic-Android/blob/6408b22c6d946098ce9d80efb918876c8b7122cf/app/src/main/java/com/geeksville/mesh/model/Node.kt#L148
+	return (user.IsUnmessagable != nil && *user.IsUnmessagable) ||
+		user.Role == pb.Config_DeviceConfig_REPEATER ||
+		user.Role == pb.Config_DeviceConfig_ROUTER ||
+		user.Role == pb.Config_DeviceConfig_ROUTER_LATE ||
+		user.Role == pb.Config_DeviceConfig_SENSOR ||
+		user.Role == pb.Config_DeviceConfig_TRACKER ||
+		user.Role == pb.Config_DeviceConfig_TAK ||
+		user.Role == pb.Config_DeviceConfig_TAK_TRACKER
+}
+
 func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, message *pb.Data) error {
 	if message == nil {
 		return fmt.Errorf("nil message")
@@ -141,15 +154,16 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 
 	chanKey := c.channelKeyStrings[packet.ChannelName]
 	meshEventEnv := MeshEvent{
-		PacketId:    packet.Id,
-		To:          meshid.NodeID(packet.To),
-		From:        meshid.NodeID(packet.From),
-		Via:         packet.GatewayNode,
-		ChannelName: packet.ChannelName,
-		ChannelKey:  &chanKey,
-		Timestamp:   packet.RxTime,
-		WantAck:     packet.WantAck,
-		IsNeighbor:  packet.Source != connectors.PacketSourceMQTT && packet.HopStart == packet.HopLimit,
+		PacketId:     packet.Id,
+		To:           meshid.NodeID(packet.To),
+		From:         meshid.NodeID(packet.From),
+		Via:          packet.GatewayNode,
+		ChannelName:  packet.ChannelName,
+		ChannelKey:   &chanKey,
+		Timestamp:    packet.RxTime,
+		WantAck:      packet.WantAck,
+		WantResponse: message.WantResponse,
+		IsNeighbor:   packet.Source != connectors.PacketSourceMQTT && packet.HopStart == packet.HopLimit,
 	}
 	var err error
 	var evt any = meshEventEnv
@@ -179,7 +193,7 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 			ShortName:      user.ShortName,
 			PublicKey:      user.PublicKey,
 			IsLicensed:     user.IsLicensed,
-			IsUnmessagable: user.IsUnmessagable,
+			IsUnmessagable: isUnmessagable(&user),
 		}
 
 	case pb.PortNum_POSITION_APP:

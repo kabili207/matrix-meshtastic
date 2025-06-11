@@ -25,6 +25,8 @@ func (c *MeshtasticConnector) handleGlobalMeshEvent(rawEvt any) {
 	switch evt := rawEvt.(type) {
 	case *mesh.MeshNodeInfoEvent:
 		c.handleMeshNodeInfo(evt)
+	case *mesh.MeshMapReportEvent:
+		c.handleMapReport(evt)
 	case *mesh.MeshLocationEvent:
 		c.handleMeshLocation(evt)
 	case *mesh.MeshWaypointEvent:
@@ -217,6 +219,19 @@ func (c *MeshtasticConnector) requestGhostNodeInfo(ghostID networkid.UserID) {
 	log.Debug().Msg("Sent request for node info")
 }
 
+func (c *MeshtasticConnector) updateMiscGhostMeta(isLicensed bool, isUnmessagable bool) bridgev2.ExtraUpdater[*bridgev2.Ghost] {
+	return func(ctx context.Context, ghost *bridgev2.Ghost) bool {
+		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
+		if !ok {
+			meta = &meshid.GhostMetadata{}
+		}
+		forceSave := meta.IsLicensed != isLicensed || meta.IsUnmessagable != isUnmessagable
+		meta.IsLicensed = isLicensed
+		meta.IsUnmessagable = isUnmessagable
+		return forceSave
+	}
+}
+
 func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 	log := c.log.With().
 		Str("action", "handle_mesh_nodeinfo").
@@ -232,8 +247,8 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 
 	//c.sendMeshPresense(&evt.Envelope)
 
-	if evt.To != meshid.BROADCAST_ID {
-		c.sendNodeInfo(evt.To, meshid.BROADCAST_ID, false)
+	if evt.To != meshid.BROADCAST_ID && evt.WantResponse {
+		c.sendNodeInfo(evt.To, evt.From, false)
 	}
 
 	if evt.LongName == "" {
@@ -259,7 +274,45 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 		Msg("Updated ghost info")
 }
 
-func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantReply bool) {
+func (c *MeshtasticConnector) handleMapReport(evt *mesh.MeshMapReportEvent) {
+	log := c.log.With().
+		Str("action", "handle_mesh_nodeinfo").
+		Stringer("from_node_id", evt.From).
+		Stringer("to_node_id", evt.To).
+		Logger()
+	ctx := log.WithContext(context.Background())
+	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(evt.From), evt.To != c.GetBaseNodeID())
+	if err != nil {
+		log.Err(err).Msg("Failed to get ghost")
+		return
+	}
+
+	if evt.To != meshid.BROADCAST_ID && evt.WantResponse {
+		c.sendNodeInfo(evt.To, evt.From, false)
+	}
+
+	if evt.LongName == "" {
+		return
+	}
+
+	userInfo := &bridgev2.UserInfo{
+		Name:        &evt.LongName,
+		IsBot:       ptr.Ptr(false),
+		Identifiers: []string{},
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(
+			c.updateGhostNames(evt.LongName, evt.ShortName),
+			updateGhostLastSeenAt(evt.IsNeighbor),
+		),
+	}
+	ghost.UpdateInfo(ctx, userInfo)
+	log.
+		Debug().
+		Str("long_name", evt.LongName).
+		Str("short_name", evt.ShortName).
+		Msg("Updated ghost info")
+}
+
+func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantResponse bool) {
 	log := c.log.With().
 		Str("action", "send_nodeinfo").
 		Stringer("from_node_id", fromNode).
@@ -273,7 +326,7 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 
 	ctx := log.WithContext(context.Background())
 	if fromNode == c.GetBaseNodeID() {
-		err := c.meshClient.SendNodeInfo(fromNode, toNode, c.Config.LongName, c.Config.ShortName, wantReply, nil)
+		err := c.meshClient.SendNodeInfo(fromNode, toNode, c.Config.LongName, c.Config.ShortName, wantResponse, nil)
 		if err != nil {
 			log.Err(err).Msg("Failed to send node info")
 		}
@@ -286,11 +339,11 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 		log.Err(err).Msg("Failed to get ghost")
 	} else {
 		if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok && meta.LongName != "" && meta.ShortName != "" {
-			err = c.meshClient.SendNodeInfo(fromNode, toNode, meta.LongName, meta.ShortName, wantReply, meta.PublicKey)
+			err = c.meshClient.SendNodeInfo(fromNode, toNode, meta.LongName, meta.ShortName, wantResponse, meta.PublicKey)
 		} else {
 			senderStr := fromNode.String()
 			shortName := senderStr[len(senderStr)-4:]
-			err = c.meshClient.SendNodeInfo(fromNode, toNode, senderStr, shortName, wantReply, nil)
+			err = c.meshClient.SendNodeInfo(fromNode, toNode, senderStr, shortName, wantResponse, nil)
 			notifyUser = true
 		}
 		if err != nil {

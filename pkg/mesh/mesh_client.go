@@ -16,6 +16,7 @@ import (
 	"github.com/meshnet-gophers/meshtastic-go/mqtt"
 	"github.com/meshnet-gophers/meshtastic-go/radio"
 	"github.com/rs/zerolog"
+	"go.mau.fi/util/ptr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -269,7 +270,7 @@ type PacketInfo struct {
 	Encrypted          EncryptionType
 	From, To           meshid.NodeID
 	RequestId, ReplyId uint32
-	WantAck            bool
+	WantResponse       bool
 	Emoji              bool
 }
 
@@ -329,9 +330,6 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 	}
 
 	bitfield := uint32(BITFIELD_OkToMQTT)
-	if info.WantAck {
-		bitfield |= uint32(BITFIELD_WantResponse)
-	}
 
 	emojiVal := 0
 	if info.Emoji {
@@ -354,9 +352,13 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		Emoji:     uint32(emojiVal),
 	}
 
-	if info.WantAck && info.To != meshid.BROADCAST_ID && (info.PortNum == pb.PortNum_NODEINFO_APP || info.PortNum == pb.PortNum_POSITION_APP) {
+	if info.WantResponse && info.To != meshid.BROADCAST_ID && (info.PortNum == pb.PortNum_NODEINFO_APP || info.PortNum == pb.PortNum_POSITION_APP) {
 		data.WantResponse = true
+		data.Bitfield = ptr.Ptr(*data.Bitfield | uint32(BITFIELD_WantResponse))
 	}
+
+	// TODO: Figure out the appropriate situations where we *do* want an ACK
+	wantAck := false
 
 	now := time.Now()
 	time := uint32(now.Unix())
@@ -384,12 +386,12 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		HopLimit:  uint32(c.hopLimit),
 		HopStart:  uint32(maxHops),
 		ViaMqtt:   false,
-		WantAck:   info.WantAck,
+		WantAck:   wantAck,
 		RxTime:    time,
 		RxSnr:     0,
 		RxRssi:    0,
 		Channel:   channelHash,
-		Priority:  getPriority(&data, info.WantAck),
+		Priority:  getPriority(&data, wantAck),
 		Delayed:   pb.MeshPacket_NO_DELAY,
 		RelayNode: uint32(getLastByteOfNodeNum(uint32(c.nodeId))),
 	}

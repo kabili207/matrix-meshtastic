@@ -11,6 +11,7 @@ import (
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
+	"go.mau.fi/util/ptr"
 )
 
 func (c *MeshtasticClient) SendMessage(from, to meshid.NodeID, channel string, message string, usePKI bool) (uint32, error) {
@@ -44,7 +45,7 @@ func (c *MeshtasticClient) SendReaction(from, to meshid.NodeID, channel string, 
 }
 
 // TODO: Create a user info struct to hold from, long, and short names
-func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortName string, wantAck bool, publicKey []byte) error {
+func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortName string, wantResponse bool, publicKey []byte) error {
 
 	now := time.Now()
 	if v, ok := c.nodeInfoSendCache[from]; ok && v.After(now.Add(5*time.Minute)) {
@@ -57,32 +58,31 @@ func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortN
 		return errors.New("short name must be less than 5 bytes")
 	}
 
-	role := pb.Config_DeviceConfig_CLIENT_MUTE
-	hw := pb.HardwareModel_PRIVATE_HW
-	if from == c.nodeId {
-		role = pb.Config_DeviceConfig_REPEATER
-		// As funny as this is, it crashes the Android app prior to version 2.5.23
-		// https://github.com/meshtastic/Meshtastic-Android/issues/1787
-		//hw = pb.HardwareModel_RESERVED_FRIED_CHICKEN
-	}
-
 	nodeInfo := pb.User{
 		Id:         from.String(),
 		LongName:   longName,
 		ShortName:  shortName,
 		IsLicensed: false,
-		HwModel:    hw,
-		Role:       role,
+		HwModel:    pb.HardwareModel_PRIVATE_HW,
+		Role:       pb.Config_DeviceConfig_CLIENT_MUTE,
 		Macaddr:    from.ToMacAddress(),
 		PublicKey:  publicKey,
 	}
 
+	if from == c.nodeId {
+		nodeInfo.Role = pb.Config_DeviceConfig_ROUTER
+		nodeInfo.IsUnmessagable = ptr.Ptr(true)
+		// As funny as this is, it crashes the Android app prior to version 2.5.23
+		// https://github.com/meshtastic/Meshtastic-Android/issues/1787
+		//hw = pb.HardwareModel_RESERVED_FRIED_CHICKEN
+	}
+
 	_, err := c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
-		To:        to,
-		From:      from,
-		PortNum:   pb.PortNum_NODEINFO_APP,
-		Encrypted: PSKEncryption,
-		WantAck:   wantAck,
+		To:           to,
+		From:         from,
+		PortNum:      pb.PortNum_NODEINFO_APP,
+		Encrypted:    PSKEncryption,
+		WantResponse: wantResponse,
 	})
 	if err == nil {
 		c.nodeInfoSendCache[from] = now
