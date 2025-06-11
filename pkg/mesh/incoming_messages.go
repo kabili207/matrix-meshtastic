@@ -148,6 +148,10 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 		return fmt.Errorf("nil message")
 	}
 
+	if packet.From == 0 {
+		return fmt.Errorf("sender has zero node ID")
+	}
+
 	if c.managedNodeFunc(meshid.NodeID(packet.From)) {
 		return nil
 	}
