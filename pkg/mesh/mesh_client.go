@@ -39,15 +39,13 @@ type MeshDisconnectedFunc func()
 type KeyRequestFunc func(nodeID meshid.NodeID) (key *string)
 
 type MeshtasticClient struct {
-	log               zerolog.Logger
-	startTime         *time.Time
-	nodeId            meshid.NodeID
-	channelKeys       map[string][]byte
-	channelKeyStrings map[string]string
-	currentPacketId   uint32
-	seenNodes         map[meshid.NodeID]MeshNodeInfo
-	primaryChannel    string
-	hopLimit          uint32
+	log             zerolog.Logger
+	startTime       *time.Time
+	nodeId          meshid.NodeID
+	channels        []meshid.ChannelDef
+	currentPacketId uint32
+	primaryChannel  meshid.ChannelDef
+	hopLimit        uint32
 
 	previouslyConnected   bool
 	eventHandlers         []MeshEventFunc
@@ -71,9 +69,7 @@ func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger z
 	mc := &MeshtasticClient{
 		startTime:         &now,
 		nodeId:            nodeId,
-		channelKeys:       map[string][]byte{},
-		channelKeyStrings: map[string]string{},
-		seenNodes:         map[meshid.NodeID]MeshNodeInfo{},
+		channels:          []meshid.ChannelDef{},
 		nodeInfoSendCache: map[meshid.NodeID]time.Time{},
 		eventHandlers:     []MeshEventFunc{},
 		log:               logger,
@@ -98,7 +94,7 @@ func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger z
 }
 
 func (c *MeshtasticClient) Connect() error {
-	if c.primaryChannel == "" {
+	if c.primaryChannel == nil {
 		return errors.New("primary channel not set")
 	}
 
@@ -178,24 +174,36 @@ func (c *MeshtasticClient) handleConnectorStateChange(mh connectors.MeshConnecto
 		}
 	}
 }
-
 func (c *MeshtasticClient) AddChannel(channelName, key string) error {
-	keyBytes, err := radio.ParseKey(key)
+	channel, err := meshid.NewChannelDef(channelName, &key)
 	if err != nil {
 		return err
 	}
+	return c.AddChannelDef(channel)
+}
+func (c *MeshtasticClient) AddChannelDef(channelDef meshid.ChannelDef) error {
 
+	chanKey := channelDef.GetPublicKey()
 	c.notifyEvent(&MeshChannelJoined{
-		ChannelID:  channelName,
-		ChannelKey: &key,
+		ChannelID:  channelDef.GetName(),
+		ChannelKey: &chanKey,
 	})
-	if _, ok := c.channelKeys[channelName]; !ok {
-		for _, h := range c.meshConnectors {
-			h.AddChannel(channelName)
+	found := false
+	for _, v := range c.channels {
+		if v.GetName() == channelDef.GetName() {
+			if v == channelDef {
+				return nil
+			}
+			found = true
+			break
 		}
 	}
-	c.channelKeys[channelName] = keyBytes
-	c.channelKeyStrings[channelName] = key
+	if !found {
+		for _, h := range c.meshConnectors {
+			h.AddChannel(channelDef.GetName())
+		}
+	}
+	c.channels = append(c.channels, channelDef)
 	return nil
 }
 
@@ -211,9 +219,14 @@ func (c *MeshtasticClient) SetHopLimit(hopLimit uint32) error {
 	return nil
 }
 
+func (c *MeshtasticClient) GetPrimaryChannel() meshid.ChannelDef {
+	return c.primaryChannel
+}
+
 func (c *MeshtasticClient) SetPrimaryChannel(channelName, channelKey string) {
-	c.AddChannel(channelName, channelKey)
-	c.primaryChannel = channelName
+	def, _ := meshid.NewChannelDef(channelName, &channelKey)
+	c.AddChannelDef(def)
+	c.primaryChannel = def
 }
 
 func (c *MeshtasticClient) SetIsManagedNodeHandler(handler IsManagedFunc) {
@@ -236,16 +249,7 @@ func (c *MeshtasticClient) SetPrivateKeyRequestHandler(handler KeyRequestFunc) {
 	c.privKeyRequestHandler = handler
 }
 
-type MeshNodeInfo struct {
-	Id        uint32
-	LongName  string
-	ShortName string
-	//IsLicensed    bool
-	HardwareModel *pb.HardwareModel
-	LastSeen      *time.Time
-}
-
-func (c *MeshtasticClient) sendProtoMessage(channel string, message proto.Message, info PacketInfo) (packetID uint32, err error) {
+func (c *MeshtasticClient) sendProtoMessage(channel meshid.ChannelDef, message proto.Message, info PacketInfo) (packetID uint32, err error) {
 	rawInfo, err := proto.Marshal(message)
 	if err != nil {
 		return 0, err
@@ -323,7 +327,7 @@ func getPriority(data *pb.Data, wantAck bool) pb.MeshPacket_Priority {
 	return priority
 }
 
-func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info PacketInfo) (packetID uint32, err error) {
+func (c *MeshtasticClient) sendBytes(channel meshid.ChannelDef, rawInfo []byte, info PacketInfo) (packetID uint32, err error) {
 
 	if !c.managedNodeFunc(meshid.NodeID(info.From)) {
 		return 0, fmt.Errorf("from node is not managed by this bridge: %s", info.From)
@@ -370,9 +374,9 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 		return 0, err
 	}
 
-	key := c.channelKeys[channel]
+	key := channel.GetKeyBytes()
 
-	channelHash, _ := radio.ChannelHash(channel, key)
+	channelHash, _ := radio.ChannelHash(channel.GetName(), key)
 
 	maxHops := c.hopLimit
 	if info.From != c.nodeId {
@@ -440,7 +444,7 @@ func (c *MeshtasticClient) sendBytes(channel string, rawInfo []byte, info Packet
 	for i, h := range c.meshConnectors {
 		go func(h connectors.MeshConnector) {
 			defer wg.Done()
-			errs[i] = h.SendPacket(channel, &pkt)
+			errs[i] = h.SendPacket(channel.GetName(), &pkt)
 		}(h)
 	}
 
@@ -484,9 +488,9 @@ func (c *MeshtasticClient) printPacketDetails(pkt connectors.NetworkMeshPacket, 
 	log.Trace().Msg("Packet received")
 }
 
-func (c *MeshtasticClient) printOutgoingPacketDetails(channel string, from, to meshid.NodeID, packetID uint32, data any) {
+func (c *MeshtasticClient) printOutgoingPacketDetails(channel meshid.ChannelDef, from, to meshid.NodeID, packetID uint32, data any) {
 	log := c.log.With().
-		Str("channel", channel).
+		Str("channel", channel.GetName()).
 		Stringer("from", from).
 		Stringer("to", to).
 		Uint32("packet_id", packetID).

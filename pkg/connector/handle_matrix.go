@@ -43,15 +43,17 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	}
 
 	fromNode := meshid.MXIDToNodeID(msg.Event.Sender)
-	channelId := c.main.Config.PrimaryChannel.Name
+	channel := c.main.meshClient.GetPrimaryChannel()
 	messIDSender := ""
 	targetNode := meshid.BROADCAST_ID
 	usePKI := false
 
 	switch msg.Portal.Portal.RoomType {
 	case database.RoomTypeDefault:
-		channelId, _, err = meshid.ParsePortalID(msg.Portal.ID)
-		messIDSender = channelId
+		channel, err = meshid.ChannelDefFromPortalID(msg.Portal.ID)
+		if err == nil {
+			messIDSender = channel.GetName()
+		}
 	case database.RoomTypeDM:
 		targetNode, _, err = meshid.ParseDMPortalID(msg.Portal.ID)
 		messIDSender = targetNode.String()
@@ -74,7 +76,7 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	switch msg.Content.MsgType {
 	case event.MsgText, event.MsgNotice, event.MsgEmote:
 		content, _ := c.main.MsgConv.ToMeshtastic(ctx, msg.Event, msg.Content)
-		packetId, err = c.MeshClient.SendMessage(fromNode, targetNode, channelId, content, usePKI)
+		packetId, err = c.MeshClient.SendMessage(fromNode, targetNode, channel, content, usePKI)
 	case event.MsgLocation:
 		geouri, err = meshid.ParseGeoURI(msg.Content.GeoURI)
 		if err != nil {
@@ -337,13 +339,13 @@ func (c *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridge
 		return nil, err
 	}
 
-	channelID := c.main.Config.PrimaryChannel.Name
+	channel := c.main.meshClient.GetPrimaryChannel()
 	targetNode := meshid.BROADCAST_ID
 	usePKI := false
 
 	switch msg.Portal.Portal.RoomType {
 	case database.RoomTypeDefault:
-		channelID, _, err = meshid.ParsePortalID(msg.Portal.ID)
+		channel, err = meshid.ChannelDefFromPortalID(msg.Portal.ID)
 	case database.RoomTypeDM:
 		targetNode, _, err = meshid.ParseDMPortalID(msg.Portal.ID)
 		if pubKey, err := c.main.getGhostPublicKey(ctx, targetNode); err == nil && len(pubKey) > 0 {
@@ -361,7 +363,7 @@ func (c *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridge
 	if err != nil {
 		return nil, err
 	}
-	_, err = c.MeshClient.SendReaction(fromNode, targetNode, channelID, packetID, pre.Emoji, usePKI)
+	_, err = c.MeshClient.SendReaction(fromNode, targetNode, channel, packetID, pre.Emoji, usePKI)
 	return &database.Reaction{}, err
 }
 

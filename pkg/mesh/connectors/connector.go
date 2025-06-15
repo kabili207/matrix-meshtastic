@@ -37,6 +37,7 @@ const (
 type NetworkMeshPacket struct {
 	*pb.MeshPacket
 	ChannelName string
+	ChannelKey  *string
 	GatewayNode meshid.NodeID
 	Source      PacketSource
 }

@@ -46,7 +46,8 @@ func (c *MeshtasticClient) handleTraceroute(packet connectors.NetworkMeshPacket,
 
 	c.logRoute(disco, packet.From, packet.To)
 
-	c.sendProtoMessage(packet.ChannelName, disco, PacketInfo{
+	chanKey, _ := meshid.NewChannelDef(packet.ChannelName, packet.ChannelKey)
+	c.sendProtoMessage(chanKey, disco, PacketInfo{
 		PortNum:   pb.PortNum_TRACEROUTE_APP,
 		Encrypted: PSKEncryption,
 		From:      toNode,

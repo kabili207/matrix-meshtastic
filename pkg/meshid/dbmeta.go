@@ -9,8 +9,8 @@ type UserLoginMetadata struct {
 }
 
 type PortalMetadata struct {
-	ChannelName string  `json:"channel_name"`
-	ChannelKey  *string `json:"channel_key"`
+	ChannelName string  `json:"channel_name,omitempty"`
+	ChannelKey  *string `json:"channel_key,omitempty"`
 }
 type GhostMetadata struct {
 	LongName         string         `json:"long_name"`

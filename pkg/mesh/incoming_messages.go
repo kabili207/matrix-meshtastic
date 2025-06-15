@@ -14,9 +14,9 @@ import (
 )
 
 func (c *MeshtasticClient) getChannelNameFromHash(idHash uint32) string {
-	for k, v := range c.channelKeys {
-		if hash, err := radio.ChannelHash(k, v); err == nil && hash == idHash {
-			return k
+	for _, v := range c.channels {
+		if hash, err := radio.ChannelHash(v.GetName(), v.GetKeyBytes()); err == nil && hash == idHash {
+			return v.GetName()
 		}
 	}
 	return ""
@@ -115,8 +115,17 @@ func (c *MeshtasticClient) tryDecryptPSK(packet *connectors.NetworkMeshPacket) (
 	if packet.ChannelName == "" {
 		return nil, fmt.Errorf("unknown channel hash: %d", packet.Channel)
 	}
-	key := c.channelKeys[packet.ChannelName]
-	return radio.TryDecode(packet.MeshPacket, key)
+	data, err := (*pb.Data)(nil), (error)(nil)
+	for _, v := range c.channels {
+		if v.GetName() == packet.ChannelName && v.GetPublicKey() != "" {
+			data, err = radio.TryDecode(packet.MeshPacket, v.GetKeyBytes())
+			if err == nil && data != nil {
+				packet.ChannelKey = ptr.Ptr(v.GetPublicKey())
+				return data, err
+			}
+		}
+	}
+	return data, err
 }
 
 func (c *MeshtasticClient) requestKey(nodeID meshid.NodeID, handler KeyRequestFunc) ([]byte, error) {
@@ -156,14 +165,13 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 		return nil
 	}
 
-	chanKey := c.channelKeyStrings[packet.ChannelName]
 	meshEventEnv := MeshEvent{
 		PacketId:     packet.Id,
 		To:           meshid.NodeID(packet.To),
 		From:         meshid.NodeID(packet.From),
 		Via:          packet.GatewayNode,
 		ChannelName:  packet.ChannelName,
-		ChannelKey:   &chanKey,
+		ChannelKey:   packet.ChannelKey,
 		Timestamp:    packet.RxTime,
 		WantAck:      packet.WantAck,
 		WantResponse: message.WantResponse,

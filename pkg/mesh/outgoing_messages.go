@@ -14,7 +14,7 @@ import (
 	"go.mau.fi/util/ptr"
 )
 
-func (c *MeshtasticClient) SendMessage(from, to meshid.NodeID, channel string, message string, usePKI bool) (uint32, error) {
+func (c *MeshtasticClient) SendMessage(from, to meshid.NodeID, channel meshid.ChannelDef, message string, usePKI bool) (uint32, error) {
 	data := []byte(message)
 	encType := PSKEncryption
 	if usePKI {
@@ -28,7 +28,7 @@ func (c *MeshtasticClient) SendMessage(from, to meshid.NodeID, channel string, m
 	})
 }
 
-func (c *MeshtasticClient) SendReaction(from, to meshid.NodeID, channel string, targetPacketId uint32, emoji string, usePKI bool) (packetID uint32, err error) {
+func (c *MeshtasticClient) SendReaction(from, to meshid.NodeID, channel meshid.ChannelDef, targetPacketId uint32, emoji string, usePKI bool) (packetID uint32, err error) {
 	data := []byte(emoji)
 	encType := PSKEncryption
 	if usePKI {
@@ -70,11 +70,13 @@ func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortN
 	}
 
 	if from == c.nodeId {
-		nodeInfo.Role = pb.Config_DeviceConfig_ROUTER
 		nodeInfo.IsUnmessagable = ptr.Ptr(true)
+		// Don't use REPEATER role. Repeaters are not supposed to send their own node info, telemetry, etc.
+		// While they don't crash, client apps can get a tad confused if we break this assumption
+		nodeInfo.Role = pb.Config_DeviceConfig_ROUTER
 		// As funny as this is, it crashes the Android app prior to version 2.5.23
 		// https://github.com/meshtastic/Meshtastic-Android/issues/1787
-		//hw = pb.HardwareModel_RESERVED_FRIED_CHICKEN
+		nodeInfo.HwModel = pb.HardwareModel_RESERVED_FRIED_CHICKEN
 	}
 
 	_, err := c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
@@ -101,12 +103,14 @@ func (c *MeshtasticClient) SendTelemetry(from, to meshid.NodeID) error {
 
 	// Value > 100 means device is mains powered
 	battLevel := uint32(101)
+	voltage := float32(5.0)
 
 	nodeInfo := pb.Telemetry{
 		Time: uint32(now.Unix()),
 		Variant: &pb.Telemetry_DeviceMetrics{
 			DeviceMetrics: &pb.DeviceMetrics{
 				BatteryLevel:  &battLevel,
+				Voltage:       &voltage,
 				UptimeSeconds: &uptimeSec,
 			},
 		},
@@ -309,9 +313,8 @@ func (c *MeshtasticClient) SendMapReport(from meshid.NodeID, longName, shortName
 
 	// TODO: Pull from root topic
 	region := pb.Config_LoRaConfig_RegionCode_value["US"]
-	defChanSnake := strcase.ToScreamingSnake(c.primaryChannel)
-	preset := pb.Config_LoRaConfig_ModemPreset_value[defChanSnake]
-	_, hasDefaultChannel := c.channelKeyStrings[c.primaryChannel]
+	defChanSnake := strcase.ToScreamingSnake(c.primaryChannel.GetName())
+	preset, hasDefaultChan := pb.Config_LoRaConfig_ModemPreset_value[defChanSnake]
 
 	latI := int32(location.Latitude * 1e7)
 	lonI := int32(location.Longitude * 1e7)
@@ -322,13 +325,17 @@ func (c *MeshtasticClient) SendMapReport(from meshid.NodeID, longName, shortName
 		Role:                role,
 		HwModel:             hw,
 		Region:              pb.Config_LoRaConfig_RegionCode(region),
-		ModemPreset:         pb.Config_LoRaConfig_ModemPreset(preset),
-		HasDefaultChannel:   hasDefaultChannel,
+		HasDefaultChannel:   hasDefaultChan,
 		LatitudeI:           latI,
 		LongitudeI:          lonI,
 		PositionPrecision:   c.GetPrecisionBits(location.Uncertainty),
 		NumOnlineLocalNodes: numNodes,
 	}
+
+	if hasDefaultChan {
+		nodeInfo.ModemPreset = pb.Config_LoRaConfig_ModemPreset(preset)
+	}
+
 	if location.Altitude != nil {
 		nodeInfo.Altitude = int32(*location.Altitude)
 	}

@@ -72,10 +72,13 @@ func fnJoinChannel(ce *commands.Event) {
 		ce.Reply("Login not found")
 	} else if !login.Client.IsLoggedIn() {
 		ce.Reply("Not logged in")
-	} else if err := login.Client.(*MeshtasticClient).MeshClient.AddChannel(name, key); err != nil {
+	} else if client, ok := login.Client.(*MeshtasticClient); !ok {
+		ce.Log.Error().Msg("Unable to cast MeshtasticClient")
+		ce.Reply("Failed to get Meshtastic client (how?!)")
+	} else if err := client.MeshClient.AddChannel(name, key); err != nil {
 		ce.Log.Err(err).Msg("Failed to join channel")
 		ce.Reply("Failed to join channel: %v", err)
-	} else if err := login.Client.(*MeshtasticClient).joinChannel(name, key); err != nil {
+	} else if err := client.joinChannel(name, key); err != nil {
 		ce.Log.Err(err).Msg("Failed to join channel")
 		ce.Reply("Failed to join channel: %v", err)
 	} else {

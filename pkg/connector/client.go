@@ -94,7 +94,7 @@ func (tc *MeshtasticClient) GetChatInfo(ctx context.Context, portal *bridgev2.Po
 		return tc.wrapDMInfo(synthNode, remoteNode), nil
 	}
 	// Other room types handle portal info on join
-	return nil, nil
+	return nil, err
 }
 
 func (c *MeshtasticClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
