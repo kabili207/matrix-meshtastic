@@ -118,6 +118,9 @@ func ParseMessageID(messageID networkid.MessageID) (senderOrChannelID string, pa
 
 func ParsePortalID(portalID networkid.PortalID) (channelID string, channelKey string, err error) {
 	parts := strings.Split(string(portalID), separatorPortalID)
+	if len(parts) == 1 {
+		return parts[0], "", nil
+	}
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("invalid portal ID: expected two pipe-separated parts")
 	}
