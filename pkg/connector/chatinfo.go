@@ -51,21 +51,30 @@ func (c MeshtasticConnector) setDMNames(info *bridgev2.ChatInfo, ghost *bridgev2
 }
 
 func (mc *MeshtasticClient) wrapChatInfo(user *bridgev2.User, channelID, channelKey string) *bridgev2.ChatInfo {
-	nodeID := meshid.MXIDToNodeID(user.MXID)
+	members := map[networkid.UserID]bridgev2.ChatMember{}
+	if user != nil {
+		nodeID := meshid.MXIDToNodeID(user.MXID)
+		members[meshid.MakeUserID(nodeID)] = bridgev2.ChatMember{
+			EventSender: bridgev2.EventSender{
+				Sender:      meshid.MakeUserID(nodeID),
+				SenderLogin: meshid.MakeUserLoginID(nodeID),
+			},
+		}
+	}
+
+	topic := "⚠️ Unencrypted"
+	if channelKey == "" {
+		topic = fmt.Sprintf("Shared Key: %s", channelKey)
+		channelID = fmt.Sprintf("%s 🔓", channelID)
+	}
+
 	info := &bridgev2.ChatInfo{
-		Name:  ptr.Ptr(channelID),
-		Topic: ptr.Ptr(fmt.Sprintf("Shared Key: %s", channelKey)),
+		Name:  &channelID,
+		Topic: &topic,
 		Type:  ptr.Ptr(database.RoomTypeDefault),
 		Members: &bridgev2.ChatMemberList{
-			IsFull: false,
-			MemberMap: map[networkid.UserID]bridgev2.ChatMember{
-				meshid.MakeUserID(nodeID): {
-					EventSender: bridgev2.EventSender{
-						Sender:      meshid.MakeUserID(nodeID),
-						SenderLogin: meshid.MakeUserLoginID(nodeID),
-					},
-				},
-			},
+			IsFull:    false,
+			MemberMap: members,
 		},
 	}
 	return info

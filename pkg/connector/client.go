@@ -2,6 +2,7 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
@@ -88,13 +89,17 @@ func (tc *MeshtasticClient) IsThisUser(ctx context.Context, userID networkid.Use
 }
 
 func (tc *MeshtasticClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
-	remoteNode, synthNode, err := meshid.ParseDMPortalID(portal.ID)
-	if err == nil {
+	remoteNode, synthNode, err1 := meshid.ParseDMPortalID(portal.ID)
+	if err1 == nil {
 		portal.RoomType = database.RoomTypeDM
 		return tc.wrapDMInfo(synthNode, remoteNode), nil
 	}
-	// Other room types handle portal info on join
-	return nil, err
+	channelName, channelKey, err2 := meshid.ParsePortalID(portal.ID)
+	if err2 == nil {
+		portal.RoomType = database.RoomTypeDefault
+		return tc.wrapChatInfo(nil, channelName, channelKey), nil
+	}
+	return nil, errors.Join(err1, err2)
 }
 
 func (c *MeshtasticClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
