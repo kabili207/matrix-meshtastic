@@ -150,12 +150,9 @@ func fnNodeInfo(ce *commands.Event) {
 	if ghost, err := ce.Bridge.GetExistingGhostByID(ce.Ctx, meshid.MakeUserID(nodeID)); err != nil {
 		ce.Log.Err(err).Msg("Unable to find existing ghost for node")
 		ce.Reply("Failed to fetch node info: %v", err)
-	} else if mxUser, err := ce.Bridge.Matrix.GetMemberInfo(ce.Ctx, ce.RoomID, userMXID); err != nil {
-		ce.Log.Err(err).Msg("Unable to get matrix member info")
-		ce.Reply("Failed to fetch user info: %v", err)
 	} else {
 
-		if ghost == nil {
+		if ghost == nil || string(ghost.ID) == ghost.Name || ghost.Name == "" {
 			if conn, ok := ce.Bridge.Network.(*MeshtasticConnector); ok {
 				conn.requestGhostNodeInfo(meshid.MakeUserID(nodeID))
 			}
@@ -170,12 +167,8 @@ func fnNodeInfo(ce *commands.Event) {
 		longName := meta.LongName
 		shortName := meta.ShortName
 		pubKey := "*not generated*"
-		if longName == "" {
-			longName = TruncateString(mxUser.Displayname, 39)
-		}
-		if shortName == "" {
-			senderStr := nodeID.String()
-			shortName = senderStr[len(senderStr)-4:]
+		if longName == "" || shortName == "" {
+			longName, shortName = nodeID.GetDefaultNodeNames()
 		}
 		if len(meta.PublicKey) > 0 {
 			pubKey = fmt.Sprintf("`%s`", base64.StdEncoding.EncodeToString(meta.PublicKey))

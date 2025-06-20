@@ -52,6 +52,14 @@ func (n NodeID) GetNodeColor() (r, g, b uint8) {
 	return
 }
 
+// GetDefaultNodeNames returns the default long and short name for an unnamed node
+func (n NodeID) GetDefaultNodeNames() (longName, shortName string) {
+	name := n.String()
+	shortName = name[len(name)-4:]
+	longName = fmt.Sprintf("Meshtastic %s", shortName)
+	return
+}
+
 func ParseNodeID(nodeID string) (NodeID, error) {
 	v, _ := strings.CutPrefix(nodeID, "!")
 	packet64, err := strconv.ParseUint(string(v), 16, 32)
