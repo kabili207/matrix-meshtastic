@@ -19,8 +19,12 @@ primary_channel:
 # Must be less than 7
 hop_limit: 3
 
+# Enable the UDP (Mesh over LAN) connection
+udp: true
+
 # Credentials for connecting to the MQTT server
 mqtt:
+  enabled: true
   server: tcp://example.com:1883
   username: example
   password: example

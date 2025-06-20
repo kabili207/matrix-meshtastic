@@ -16,10 +16,12 @@ type Config struct {
 	ShortName      string        `yaml:"short_name"`
 	HopLimit       uint32        `yaml:"hop_limit"`
 	PrimaryChannel ChannelConfig `yaml:"primary_channel"`
+	UDP            bool          `yaml:"udp"`
 	Mqtt           MqttConfig    `yaml:"mqtt"`
 }
 
 type MqttConfig struct {
+	Enabled   bool   `yaml:"enabled"`
 	Uri       string `yaml:"server"`
 	Username  string `yaml:"username"`
 	Password  string `yaml:"password"`
@@ -35,8 +37,10 @@ func upgradeConfig(helper configupgrade.Helper) {
 	helper.Copy(configupgrade.Str, "long_name")
 	helper.Copy(configupgrade.Str, "short_name")
 	helper.Copy(configupgrade.Int, "hop_limit")
+	helper.Copy(configupgrade.Bool, "udp")
 	helper.Copy(configupgrade.Str, "primary_channel", "name")
 	helper.Copy(configupgrade.Str, "primary_channel", "key")
+	helper.Copy(configupgrade.Bool, "mqtt", "enabled")
 	helper.Copy(configupgrade.Str, "mqtt", "server")
 	helper.Copy(configupgrade.Str, "mqtt", "username")
 	helper.Copy(configupgrade.Str, "mqtt", "password")
@@ -59,6 +63,9 @@ func (c *MeshtasticConnector) ValidateConfig() error {
 	}
 	if c.Config.HopLimit >= meshid.MAX_HOPS {
 		return fmt.Errorf("hop_limit must be less than %d", meshid.MAX_HOPS)
+	}
+	if !c.Config.UDP && !c.Config.Mqtt.Enabled {
+		return fmt.Errorf("at least one connection method must be enabled")
 	}
 	return nil
 }

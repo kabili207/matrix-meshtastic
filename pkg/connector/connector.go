@@ -9,7 +9,6 @@ import (
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"github.com/kabili207/matrix-meshtastic/pkg/msgconv"
-	"github.com/meshnet-gophers/meshtastic-go/mqtt"
 	"github.com/rs/zerolog"
 	slogzerolog "github.com/samber/slog-zerolog/v2"
 	"go.mau.fi/util/ptr"
@@ -135,13 +134,15 @@ func (tc *MeshtasticConnector) GetDBMetaTypes() database.MetaTypes {
 
 func (c *MeshtasticConnector) Start(ctx context.Context) error {
 	c.log.Info().Msg("MeshtasticConnector Start called")
-	mqttClient := mqtt.NewClient(c.Config.Mqtt.Uri, c.Config.Mqtt.Username, c.Config.Mqtt.Password, c.Config.Mqtt.RootTopic)
-	// Init with Info level rather than the default of Debug, as the MQTT client is VERY noisy
-	slogger := slog.New(slogzerolog.Option{Level: slog.LevelInfo, Logger: &c.log}.NewZerologHandler())
-	mqttClient.SetLogger(slogger)
-
-	c.meshClient = mesh.NewMeshtasticClient(c.GetBaseNodeID(), mqttClient, c.log.With().Logger())
+	c.meshClient = mesh.NewMeshtasticClient(c.GetBaseNodeID(), c.log.With().Logger())
 	c.meshClient.SetHopLimit(c.Config.HopLimit)
+
+	if c.Config.UDP {
+		c.meshClient.AddUDPHandler()
+	}
+	if c.Config.Mqtt.Enabled {
+		c.meshClient.AddMQTTHandler(c.Config.Mqtt.Uri, c.Config.Mqtt.Username, c.Config.Mqtt.Password, c.Config.Mqtt.RootTopic)
+	}
 	c.meshClient.SetIsManagedNodeHandler(c.IsManagedNode)
 	c.meshClient.SetOnDisconnectHandler(c.onMeshDisconnected)
 	c.meshClient.SetOnConnectHandler(c.onMeshConnected)

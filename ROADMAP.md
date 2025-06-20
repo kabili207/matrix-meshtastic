@@ -12,7 +12,7 @@
     * [x] Plain text
     * [ ] ~~Formatted messages~~ (not supported by Meshtastic)
     * [ ] ~~Media/files~~ (not supported by Meshtastic)
-    * [ ] Location messages (pending support from Mautrix via MSC3489/MSC3672)
+    * [ ] Location messages (pending support of MSC3489/MSC3672 in https://github.com/mautrix/go)
     * [ ] Waypoint messages
   * [x] Chat types
     * [x] Channels

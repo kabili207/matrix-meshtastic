@@ -3,6 +3,7 @@ package mesh
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"math/rand/v2"
 	"slices"
@@ -16,6 +17,7 @@ import (
 	"github.com/meshnet-gophers/meshtastic-go/mqtt"
 	"github.com/meshnet-gophers/meshtastic-go/radio"
 	"github.com/rs/zerolog"
+	slogzerolog "github.com/samber/slog-zerolog/v2"
 	"go.mau.fi/util/ptr"
 	"google.golang.org/protobuf/proto"
 )
@@ -62,7 +64,7 @@ type MeshtasticClient struct {
 	meshConnectors []connectors.MeshConnector
 }
 
-func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger zerolog.Logger) *MeshtasticClient {
+func NewMeshtasticClient(nodeId meshid.NodeID, logger zerolog.Logger) *MeshtasticClient {
 	now := time.Now()
 	now = now.UTC()
 
@@ -74,23 +76,34 @@ func NewMeshtasticClient(nodeId meshid.NodeID, mqttClient *mqtt.Client, logger z
 		eventHandlers:     []MeshEventFunc{},
 		log:               logger,
 		hopLimit:          DefaultHopLimit,
-		meshConnectors: []connectors.MeshConnector{
-			// TODO: Let implementors decide which connector to enable
-			connectors.NewUDPMessageHandler(logger),
-			connectors.NewMQTTMessageHandler(nodeId, mqttClient, logger),
-		},
+		meshConnectors:    []connectors.MeshConnector{},
 	}
 
 	mc.packetCache = ttlcache.New(
 		ttlcache.WithTTL[uint64, any](2 * time.Hour),
 	)
 
-	for _, h := range mc.meshConnectors {
-		h.SetPacketHandler(mc.handleMeshPacket)
-		h.SetStateHandler(mc.handleConnectorStateChange)
-	}
-
 	return mc
+}
+
+func (c *MeshtasticClient) AddMQTTHandler(url, username, password, rootTopic string) {
+
+	mqttClient := mqtt.NewClient(url, username, password, rootTopic)
+	// Init with Info level rather than the default of Debug, as the MQTT client is VERY noisy
+	slogger := slog.New(slogzerolog.Option{Level: slog.LevelInfo, Logger: &c.log}.NewZerologHandler())
+	mqttClient.SetLogger(slogger)
+
+	h := connectors.NewMQTTMessageHandler(c.nodeId, mqttClient, c.log)
+	h.SetPacketHandler(c.handleMeshPacket)
+	h.SetStateHandler(c.handleConnectorStateChange)
+	c.meshConnectors = append(c.meshConnectors, h)
+}
+
+func (c *MeshtasticClient) AddUDPHandler() {
+	h := connectors.NewUDPMessageHandler(c.log)
+	h.SetPacketHandler(c.handleMeshPacket)
+	h.SetStateHandler(c.handleConnectorStateChange)
+	c.meshConnectors = append(c.meshConnectors, h)
 }
 
 func (c *MeshtasticClient) Connect() error {

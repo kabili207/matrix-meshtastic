@@ -1,8 +1,8 @@
 # matrix-meshtastic
 A Matrix-Meshtastic bridge based on [meshtastic-go](https://github.com/meshnet-gophers/meshtastic-go).
 
-This bridge makes use of the MQTT functionality to create virtual devices, and therefore requires a
-functioning MQTT server.
+This bridge creates virtual Meshtastic nodes rather than using a real device and thus requires either a functioning
+MQTT server or a physical node with Mesh over UDP enabled.
 
 ## Documentation
 
@@ -27,9 +27,12 @@ network:
     primary_channel:
         name: LongFast
         key: "1PG7OiApB1nwvP+rz05pAQ=="
+    # Enable the UDP (Mesh over LAN) connection
+    udp: true
     # Credentials for connecting to the MQTT server
     # Using the public MQTT server is not advised due to various limitations
     mqtt:
+        enabled: true
         server: tcp://mqtt.example.com:1883
         username: meshdev
         password: large4cats
