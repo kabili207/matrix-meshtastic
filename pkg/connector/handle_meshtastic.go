@@ -123,6 +123,23 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 		}
 	}
 
+	if !evt.IsDM {
+		logins, err := c.bridge.GetUserLoginsInPortal(context.Background(), portalKey)
+		if err != nil {
+			return
+		}
+		found := false
+		for _, l := range logins {
+			if l.ID == c.UserLogin.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return
+		}
+	}
+
 	mess := simplevent.Message[*mesh.MeshMessageEvent]{
 		EventMeta: simplevent.EventMeta{
 			Type: bridgev2.RemoteEventMessage,
@@ -388,6 +405,23 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 		messIDSender = evt.ChannelName
 		if evt.WantAck {
 			c.MeshClient.SendAck(c.main.GetBaseNodeID(), evt.From, evt.PacketId)
+		}
+	}
+
+	if !evt.IsDM {
+		logins, err := c.bridge.GetUserLoginsInPortal(context.Background(), portalKey)
+		if err != nil {
+			return
+		}
+		found := false
+		for _, l := range logins {
+			if l.ID == c.UserLogin.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return
 		}
 	}
 
