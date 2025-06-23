@@ -16,7 +16,7 @@ const (
 	rateHostInfo     time.Duration = (12 * time.Hour) + (7 * time.Second) // Only sent by bridge, which is a router
 	rateNodeInfo     time.Duration = (3 * time.Hour) + (13 * time.Second)
 	ratePosition     time.Duration = (3 * time.Hour) + (26 * time.Second)
-	rateNeighborInfo time.Duration = (6 * time.Hour) + (31 * time.Second)
+	rateNeighborInfo time.Duration = (12 * time.Hour) + (31 * time.Second)
 )
 
 func init() {
@@ -94,7 +94,7 @@ func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 			}
 		}
 	}
-	c.meshClient.SendNeighborInfo(c.GetBaseNodeID(), nodeIDs)
+	c.meshClient.SendNeighborInfo(c.GetBaseNodeID(), nodeIDs, uint32(rateNeighborInfo.Seconds()))
 }
 
 func (c *MeshtasticConnector) sendPeriodicNodeInfo(ctx context.Context) {

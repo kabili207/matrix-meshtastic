@@ -174,7 +174,7 @@ func (c *MeshtasticClient) SendHostMetrics(from, to meshid.NodeID) error {
 
 // SendNeighborInfo will broadcast the list of neighbor IDs to the mesh.
 // The sender's node ID will be remove from the neighbor list if detected
-func (c *MeshtasticClient) SendNeighborInfo(from meshid.NodeID, neighborIDs []meshid.NodeID) error {
+func (c *MeshtasticClient) SendNeighborInfo(from meshid.NodeID, neighborIDs []meshid.NodeID, broadcastInterval uint32) error {
 
 	// Taken from mesh.options in protobuf project
 	MAX_NEIGHBOR_LEN := 10
@@ -197,7 +197,7 @@ func (c *MeshtasticClient) SendNeighborInfo(from meshid.NodeID, neighborIDs []me
 		NodeId:                    uint32(from),
 		Neighbors:                 neighbors,
 		LastSentById:              uint32(from),
-		NodeBroadcastIntervalSecs: 3600,
+		NodeBroadcastIntervalSecs: broadcastInterval,
 	}
 
 	_, err := c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
