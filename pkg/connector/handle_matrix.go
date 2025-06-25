@@ -76,7 +76,11 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	switch msg.Content.MsgType {
 	case event.MsgText, event.MsgNotice, event.MsgEmote:
 		content, _ := c.main.MsgConv.ToMeshtastic(ctx, msg.Event, msg.Content)
-		packetId, err = c.MeshClient.SendMessage(fromNode, targetNode, channel, content, usePKI)
+		replyID := uint32(0)
+		if msg.ReplyTo != nil {
+			_, replyID, _ = meshid.ParseMessageID(msg.ReplyTo.ID)
+		}
+		packetId, err = c.MeshClient.SendMessage(fromNode, targetNode, channel, content, replyID, usePKI)
 	case event.MsgLocation:
 		geouri, err = meshid.ParseGeoURI(msg.Content.GeoURI)
 		if err != nil {

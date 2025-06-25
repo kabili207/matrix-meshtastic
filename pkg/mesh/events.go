@@ -19,6 +19,7 @@ type MeshMessageEvent struct {
 	MeshEvent
 	Message string
 	IsDM    bool
+	ReplyId uint32
 }
 
 type MeshReactionEvent struct {

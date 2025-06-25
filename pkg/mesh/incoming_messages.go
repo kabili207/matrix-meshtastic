@@ -194,6 +194,7 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 				MeshEvent: meshEventEnv,
 				Message:   string(message.Payload),
 				IsDM:      packet.To != uint32(meshid.BROADCAST_ID),
+				ReplyId:   message.ReplyId,
 			}
 		}
 	case pb.PortNum_NODEINFO_APP:

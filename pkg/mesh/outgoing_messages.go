@@ -14,7 +14,7 @@ import (
 	"go.mau.fi/util/ptr"
 )
 
-func (c *MeshtasticClient) SendMessage(from, to meshid.NodeID, channel meshid.ChannelDef, message string, usePKI bool) (uint32, error) {
+func (c *MeshtasticClient) SendMessage(from, to meshid.NodeID, channel meshid.ChannelDef, message string, replyID uint32, usePKI bool) (uint32, error) {
 	data := []byte(message)
 	encType := PSKEncryption
 	if usePKI {
@@ -25,6 +25,7 @@ func (c *MeshtasticClient) SendMessage(from, to meshid.NodeID, channel meshid.Ch
 		Encrypted: encType,
 		From:      from,
 		To:        to,
+		ReplyId:   replyID,
 	})
 }
 

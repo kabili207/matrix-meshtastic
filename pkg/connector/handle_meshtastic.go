@@ -195,12 +195,24 @@ func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *brid
 	if formatted != "" {
 		content.Format = event.FormatHTML
 	}
-	return &bridgev2.ConvertedMessage{
+	m := &bridgev2.ConvertedMessage{
 		Parts: []*bridgev2.ConvertedMessagePart{{
 			Type:    event.EventMessage,
 			Content: content,
 		}},
-	}, nil
+	}
+	if data.ReplyId != 0 {
+		var messIDSender string
+		if data.IsDM {
+			messIDSender = data.From.String()
+		} else {
+			messIDSender = data.ChannelName
+		}
+		m.ReplyTo = &networkid.MessageOptionalPartID{
+			MessageID: meshid.MakeMessageID(messIDSender, data.ReplyId),
+		}
+	}
+	return m, nil
 }
 
 func (c *MeshtasticConnector) getRemoteGhost(ctx context.Context, ghostID networkid.UserID, requestInfoIfNew bool) (*bridgev2.Ghost, error) {
