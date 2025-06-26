@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
@@ -135,24 +134,12 @@ func (c *MeshtasticClient) postMessageSave(mxid id.UserID, roomId id.RoomID) fun
 			longName := TruncateString(u.Displayname, 39)
 			senderStr := string(m.SenderID)
 			shortName := senderStr[len(senderStr)-4:]
-
-			userInfo := &bridgev2.UserInfo{
-				Name:         &longName,
-				IsBot:        ptr.Ptr(false),
-				Identifiers:  []string{},
-				ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostSenderID(mxid), c.main.updateGhostNames(longName, string(shortName))),
-			}
-			ghost.UpdateInfo(ctx, userInfo)
-			var pubKey []byte
-			if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok {
-				pubKey = meta.PublicKey
-			}
-			c.MeshClient.SendNodeInfo(meshid.MXIDToNodeID(mxid), meshid.BROADCAST_ID, longName, shortName, false, pubKey)
+			c.main.UpdateGhostMeshNames(ctx, m.SenderID, mxid, longName, shortName)
 		}
 	}
 }
 
-func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID networkid.UserID, longName, shortName string) error {
+func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID networkid.UserID, mxid id.UserID, longName, shortName string) error {
 	if len([]byte(longName)) > 39 {
 		return errors.New("long name must be less than 40 bytes")
 	} else if len([]byte(shortName)) > 4 {
@@ -167,21 +154,39 @@ func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID n
 		Name:         &longName,
 		IsBot:        ptr.Ptr(false),
 		Identifiers:  []string{},
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostNames(longName, string(shortName))),
+		ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostSenderID(mxid)),
 	}
 	ghost.UpdateInfo(ctx, userInfo)
 	nodeID, err := meshid.ParseUserID(userID)
 	if err != nil {
 		return err
 	}
-	var pubKey []byte
-	if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok {
-		pubKey = meta.PublicKey
+	nodeInfo, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID)
+	if err != nil {
+		return err
 	}
-	return c.meshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, longName, shortName, false, pubKey)
+	if nodeInfo == nil {
+		nodeInfo = c.meshDB.MeshNodeInfo.New()
+		nodeInfo.NodeID = nodeID
+		nodeInfo.UserID = nodeID.String()
+		nodeInfo.IsDirect = true
+		nodeInfo.IsManaged = true
+		c.log.Debug().Msg("Generating new keypair")
+		pub, priv, err := c.meshClient.GenerateKeyPair()
+		if err != nil {
+			return err
+		}
+		nodeInfo.PublicKey = pub
+		nodeInfo.PrivateKey = priv
+	}
+	nodeInfo.LongName = longName
+	nodeInfo.ShortName = longName
+	nodeInfo.SetAll(ctx)
+
+	return c.meshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, longName, shortName, false, nodeInfo.PublicKey)
 }
 
-func (c *MeshtasticClient) updateGhostSenderID(mxid id.UserID) func(context.Context, *bridgev2.Ghost) bool {
+func (c *MeshtasticConnector) updateGhostSenderID(mxid id.UserID) func(context.Context, *bridgev2.Ghost) bool {
 	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
 		meta := &meshid.GhostMetadata{}
 		switch ghost.Metadata.(type) {
@@ -193,24 +198,6 @@ func (c *MeshtasticClient) updateGhostSenderID(mxid id.UserID) func(context.Cont
 		newId := mxid.String()
 		forceSave := newId != meta.UserMXID
 		meta.UserMXID = newId
-		meta.IsManaged = true
-		return forceSave
-	}
-}
-
-func (c *MeshtasticConnector) updateGhostNames(longName, shortName string) bridgev2.ExtraUpdater[*bridgev2.Ghost] {
-	return func(ctx context.Context, ghost *bridgev2.Ghost) bool {
-		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
-		if !ok {
-			meta = &meshid.GhostMetadata{}
-		}
-		forceSave := meta.LongName != longName || meta.ShortName != shortName
-		meta.LongName = longName
-		meta.ShortName = shortName
-		if forceSave {
-			go c.updateDMPortalInfo(ctx, ghost)
-		}
-
 		return forceSave
 	}
 }
@@ -246,82 +233,62 @@ func (c *MeshtasticConnector) updateDMPortalInfo(ctx context.Context, ghost *bri
 	}
 }
 
-func (c *MeshtasticConnector) updateGhostPublicKey(publicKey []byte) func(context.Context, *bridgev2.Ghost) bool {
+/*
+func (c *MeshtasticConnector) updateGhostPrivateKey(privateKey []byte) func(context.Context, *bridgev2.Ghost) bool {
 	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
 		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
 		if !ok {
 			meta = &meshid.GhostMetadata{}
 		}
-		forceSave := !slices.Equal(meta.PublicKey, publicKey)
-		meta.PublicKey = publicKey
-		return forceSave
-	}
-}
-
-func (c *MeshtasticConnector) updateGhostPrivateKey(publicKey, privateKey []byte) func(context.Context, *bridgev2.Ghost) bool {
-	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
-		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
-		if !ok {
-			meta = &meshid.GhostMetadata{}
-		}
-		forceSave := !slices.Equal(meta.PrivateKey, privateKey) || !slices.Equal(meta.PublicKey, publicKey)
+		forceSave := !slices.Equal(meta.PrivateKey, privateKey)
 		meta.PrivateKey = privateKey
-		meta.PublicKey = publicKey
 		if nodeID, err := meshid.ParseUserID(ghost.ID); len(privateKey) > 0 && err == nil {
 			c.sendNodeInfo(nodeID, meshid.BROADCAST_ID, false)
 		}
 		return forceSave
 	}
-}
+}*/
 
 func (c *MeshtasticConnector) getGhostPublicKey(ctx context.Context, nodeID meshid.NodeID) ([]byte, error) {
-	ghost, err := c.bridge.GetExistingGhostByID(ctx, meshid.MakeUserID(nodeID))
-	if err != nil {
+	if nodeInfo, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID); err != nil {
 		return nil, err
-	}
-	if ghost == nil {
-		return nil, errors.New("ghost not found")
-	}
-	if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok {
-		if meta.IsManaged && len(meta.PrivateKey) == 0 {
-			c.log.Debug().Msg("Generating new keypair")
-			pub, priv, err := c.meshClient.GenerateKeyPair()
-			if err != nil {
-				return nil, err
-			}
-			userInfo := &bridgev2.UserInfo{
-				ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostPrivateKey(pub, priv)),
-			}
-			ghost.UpdateInfo(ctx, userInfo)
-			return pub, nil
+	} else if len(nodeInfo.PublicKey) > 0 {
+		return nodeInfo.PublicKey, nil
+	} else if nodeInfo.IsManaged {
+		c.log.Debug().Stringer("node_id", nodeID).Msg("Generating new keypair")
+		pub, priv, err := c.meshClient.GenerateKeyPair()
+		if err != nil {
+			return nil, err
 		}
-		return meta.PublicKey, nil
+		nodeInfo.PublicKey = pub
+		nodeInfo.PrivateKey = priv
+		err = nodeInfo.SetAll(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return pub, nil
 	}
 	return nil, errors.New("no public key found")
 }
 
 func (c *MeshtasticConnector) getGhostPrivateKey(ctx context.Context, nodeID meshid.NodeID) ([]byte, error) {
-	ghost, err := c.bridge.GetExistingGhostByID(ctx, meshid.MakeUserID(nodeID))
-	if err != nil {
+	if nodeInfo, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID); err != nil {
 		return nil, err
-	}
-	if ghost == nil {
-		return nil, errors.New("ghost not found")
-	}
-	if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok {
-		if meta.IsManaged && len(meta.PrivateKey) == 0 {
-			c.log.Debug().Msg("Generating new keypair")
-			pub, priv, err := c.meshClient.GenerateKeyPair()
-			if err != nil {
-				return nil, err
-			}
-			userInfo := &bridgev2.UserInfo{
-				ExtraUpdates: bridgev2.MergeExtraUpdaters(c.updateGhostPrivateKey(pub, priv)),
-			}
-			ghost.UpdateInfo(ctx, userInfo)
-			return priv, nil
+	} else if len(nodeInfo.PrivateKey) > 0 {
+		return nodeInfo.PrivateKey, nil
+	} else if nodeInfo.IsManaged {
+		c.log.Debug().Stringer("node_id", nodeID).Msg("Generating new keypair")
+		pub, priv, err := c.meshClient.GenerateKeyPair()
+		if err != nil {
+			return nil, err
 		}
-		return meta.PrivateKey, nil
+		nodeInfo.PublicKey = pub
+		nodeInfo.PrivateKey = priv
+		err = nodeInfo.SetAll(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return pub, nil
 	}
 	return nil, errors.New("no private key found")
 }
@@ -375,15 +342,13 @@ func (c *MeshtasticClient) UpdateLastSeenDate(ctx context.Context, sender id.Use
 	if c.bridge.IsGhostMXID(sender) {
 		return
 	}
-	uid := meshid.MakeUserID(meshid.MXIDToNodeID(sender))
-	ghost, err := c.bridge.GetGhostByID(ctx, uid)
+	nodeID := meshid.MXIDToNodeID(sender)
+	uid := meshid.MakeUserID(nodeID)
+	_, err := c.bridge.GetGhostByID(ctx, uid)
 	if err != nil {
 		return
 	}
-	userInfo := &bridgev2.UserInfo{
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt(true)),
-	}
-	ghost.UpdateInfo(ctx, userInfo)
+	c.main.meshDB.MeshNodeInfo.SetLastSeen(ctx, nodeID, true)
 }
 
 func (mc *MeshtasticClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.MatrixMembershipChange) (bool, error) {

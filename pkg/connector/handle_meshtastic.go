@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"github.com/rs/zerolog"
-	"go.mau.fi/util/jsontime"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
@@ -48,11 +48,8 @@ func (c *MeshtasticClient) handleMeshEvent(rawEvt any) {
 }
 
 func (c *MeshtasticConnector) handleUnknownPacket(evt *mesh.MeshEvent) {
-	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
-	userInfo := &bridgev2.UserInfo{
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt(evt.IsNeighbor)),
-	}
-	ghost.UpdateInfo(context.Background(), userInfo)
+	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
+	c.meshDB.MeshNodeInfo.SetLastSeen(context.Background(), evt.From, evt.IsNeighbor)
 }
 
 func (c *MeshtasticConnector) handleMeshLocation(evt *mesh.MeshLocationEvent) {
@@ -65,11 +62,8 @@ func (c *MeshtasticConnector) handleMeshLocation(evt *mesh.MeshLocationEvent) {
 		Float32("longitude", evt.Location.Latitude).
 		Msg("Location update received")
 
-	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
-	userInfo := &bridgev2.UserInfo{
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt(evt.IsNeighbor)),
-	}
-	ghost.UpdateInfo(context.Background(), userInfo)
+	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
+	c.meshDB.MeshNodeInfo.SetLastSeen(context.Background(), evt.From, evt.IsNeighbor)
 }
 
 func (c *MeshtasticClient) joinChannel(channelName string, channelKey string) error {
@@ -102,7 +96,9 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 		return
 	}
 
-	ghost, _ := c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
+	ctx := context.Background()
+
+	c.main.getRemoteGhost(ctx, meshid.MakeUserID(evt.From), true)
 
 	var portalKey networkid.PortalKey
 	var messIDSender = ""
@@ -124,7 +120,7 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 	}
 
 	if !evt.IsDM {
-		logins, err := c.bridge.GetUserLoginsInPortal(context.Background(), portalKey)
+		logins, err := c.bridge.GetUserLoginsInPortal(ctx, portalKey)
 		if err != nil {
 			return
 		}
@@ -162,10 +158,7 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 	}
 
 	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)
-	userInfo := &bridgev2.UserInfo{
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt(evt.IsNeighbor)),
-	}
-	ghost.UpdateInfo(context.Background(), userInfo)
+	c.main.meshDB.MeshNodeInfo.SetLastSeen(ctx, evt.From, evt.IsNeighbor)
 }
 
 func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data *mesh.MeshMessageEvent) (*bridgev2.ConvertedMessage, error) {
@@ -248,19 +241,6 @@ func (c *MeshtasticConnector) requestGhostNodeInfo(ghostID networkid.UserID) {
 	log.Debug().Msg("Sent request for node info")
 }
 
-func (c *MeshtasticConnector) updateMiscGhostMeta(isLicensed bool, isUnmessagable bool) bridgev2.ExtraUpdater[*bridgev2.Ghost] {
-	return func(ctx context.Context, ghost *bridgev2.Ghost) bool {
-		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
-		if !ok {
-			meta = &meshid.GhostMetadata{}
-		}
-		forceSave := meta.IsLicensed != isLicensed || meta.IsUnmessagable != isUnmessagable
-		meta.IsLicensed = isLicensed
-		meta.IsUnmessagable = isUnmessagable
-		return forceSave
-	}
-}
-
 func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 	log := c.log.With().
 		Str("action", "handle_mesh_nodeinfo").
@@ -280,6 +260,33 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 		c.sendNodeInfo(evt.To, evt.From, false)
 	}
 
+	mn, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, evt.From)
+	if mn == nil || err != nil {
+		mn = c.meshDB.MeshNodeInfo.New()
+		mn.NodeID = evt.From
+	}
+	needUpdate := false
+	if mn.UserID != evt.UserID || mn.LongName != evt.LongName || mn.ShortName != evt.ShortName || slices.Equal(mn.PublicKey, evt.PublicKey) {
+		needUpdate = true
+		mn.UserID = evt.UserID
+		mn.LongName = evt.LongName
+		mn.ShortName = evt.ShortName
+		mn.PublicKey = evt.PublicKey
+	}
+	mn.Role = evt.Role
+	mn.IsDirect = evt.IsNeighbor
+	mn.IsLicensed = evt.IsLicensed
+	mn.IsUnmessagable = evt.IsUnmessagable
+	mn.LastSeen = ptr.Ptr(time.Unix(int64(evt.Timestamp), 0))
+	err = mn.SetAll(ctx)
+	if err != nil {
+		log.
+			Err(err).
+			Str("long_name", evt.LongName).
+			Str("short_name", evt.ShortName).
+			Msg("Failed to update node db")
+	}
+
 	if evt.LongName == "" {
 		return
 	}
@@ -288,14 +295,11 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 		Name:        &evt.LongName,
 		IsBot:       ptr.Ptr(false),
 		Identifiers: []string{},
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(
-			c.updateGhostNames(evt.LongName, evt.ShortName),
-			c.updateGhostPublicKey(evt.PublicKey),
-			c.updateMiscGhostMeta(evt.IsLicensed, evt.IsUnmessagable),
-			updateGhostLastSeenAt(evt.IsNeighbor),
-		),
 	}
 	ghost.UpdateInfo(ctx, userInfo)
+	if needUpdate {
+		c.updateDMPortalInfo(ctx, ghost)
+	}
 	log.
 		Debug().
 		Str("long_name", evt.LongName).
@@ -320,6 +324,36 @@ func (c *MeshtasticConnector) handleMapReport(evt *mesh.MeshMapReportEvent) {
 		c.sendNodeInfo(evt.To, evt.From, false)
 	}
 
+	mn, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, evt.From)
+	if mn == nil || err != nil {
+		mn = c.meshDB.MeshNodeInfo.New()
+		mn.NodeID = evt.From
+	}
+
+	needUpdate := false
+	if mn.UserID == "" {
+		mn.UserID = evt.From.String()
+	}
+
+	if mn.LongName != evt.LongName || mn.ShortName != evt.ShortName {
+		mn.LongName = evt.LongName
+		mn.ShortName = evt.ShortName
+		needUpdate = true
+	}
+
+	mn.Role = evt.Role
+	mn.IsDirect = evt.IsNeighbor
+	mn.IsUnmessagable = evt.IsUnmessagable
+	mn.LastSeen = ptr.Ptr(time.Unix(int64(evt.Timestamp), 0))
+	err = mn.SetAll(ctx)
+	if err != nil {
+		log.
+			Err(err).
+			Str("long_name", evt.LongName).
+			Str("short_name", evt.ShortName).
+			Msg("Failed to update node db")
+	}
+
 	if evt.LongName == "" {
 		return
 	}
@@ -328,12 +362,11 @@ func (c *MeshtasticConnector) handleMapReport(evt *mesh.MeshMapReportEvent) {
 		Name:        &evt.LongName,
 		IsBot:       ptr.Ptr(false),
 		Identifiers: []string{},
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(
-			c.updateGhostNames(evt.LongName, evt.ShortName),
-			updateGhostLastSeenAt(evt.IsNeighbor),
-		),
 	}
 	ghost.UpdateInfo(ctx, userInfo)
+	if needUpdate {
+		c.updateDMPortalInfo(ctx, ghost)
+	}
 	log.
 		Debug().
 		Str("long_name", evt.LongName).
@@ -362,36 +395,29 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 		return
 	}
 
-	notifyUser := false
-	ghost, err := c.bridge.GetGhostByID(ctx, meshid.MakeUserID(fromNode))
+	nodeInfo, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, fromNode)
 	if err != nil {
-		log.Err(err).Msg("Failed to get ghost")
-	} else {
-		if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok && meta.LongName != "" && meta.ShortName != "" {
-			err = c.meshClient.SendNodeInfo(fromNode, toNode, meta.LongName, meta.ShortName, wantResponse, meta.PublicKey)
-		} else {
-			senderStr := fromNode.String()
-			shortName := senderStr[len(senderStr)-4:]
-			err = c.meshClient.SendNodeInfo(fromNode, toNode, senderStr, shortName, wantResponse, nil)
-			notifyUser = true
-		}
-		if err != nil {
-			log.Err(err).Msg("Failed to send node info")
-			return
-		}
+		log.Err(err).Msg("Failed to query node info")
+		return
 	}
+
+	notifyUser := false
+	if nodeInfo != nil {
+		err = c.meshClient.SendNodeInfo(fromNode, toNode, nodeInfo.LongName, nodeInfo.ShortName, wantResponse, nodeInfo.PublicKey)
+	} else {
+		longName, shortName := fromNode.GetDefaultNodeNames()
+		err = c.meshClient.SendNodeInfo(fromNode, toNode, longName, shortName, wantResponse, nil)
+		notifyUser = true
+	}
+
+	if err != nil {
+		log.Err(err).Msg("Failed to send node info")
+		return
+	}
+
 	if notifyUser {
 		log.Warn().Msg("User does not have their node names configured")
 		// TODO: Send a notice in the portal informing the user how to set their mesh names
-	}
-}
-
-func updateGhostLastSeenAt(isDirectNeighbor bool) bridgev2.ExtraUpdater[*bridgev2.Ghost] {
-	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
-		meta := ghost.Metadata.(*meshid.GhostMetadata)
-		meta.LastSeen = ptr.Ptr(jsontime.UnixNow())
-		meta.IsDirectNeighbor = isDirectNeighbor
-		return true
 	}
 }
 
@@ -401,7 +427,7 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 		return
 	}
 
-	ghost, _ := c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
+	c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
 
 	var portalKey networkid.PortalKey
 	var messIDSender = ""
@@ -455,11 +481,9 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 		TargetMessage: meshid.MakeMessageID(messIDSender, evt.ReplyId),
 	}
 
+	c.main.meshDB.MeshNodeInfo.SetLastSeen(context.Background(), evt.From, evt.IsNeighbor)
+
 	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)
-	userInfo := &bridgev2.UserInfo{
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt(evt.IsNeighbor)),
-	}
-	ghost.UpdateInfo(context.Background(), userInfo)
 }
 
 func (c *MeshtasticConnector) handleMeshWaypoint(evt *mesh.MeshWaypointEvent) {
@@ -475,11 +499,7 @@ func (c *MeshtasticConnector) handleMeshWaypoint(evt *mesh.MeshWaypointEvent) {
 		Str("icon", evt.Icon).
 		Msg("Waypoint received")
 
-	ghost, _ := c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
-	userInfo := &bridgev2.UserInfo{
-		ExtraUpdates: bridgev2.MergeExtraUpdaters(updateGhostLastSeenAt(evt.IsNeighbor)),
-	}
-	ghost.UpdateInfo(context.Background(), userInfo)
+	c.meshDB.MeshNodeInfo.SetLastSeen(context.Background(), evt.From, evt.IsNeighbor)
 	// TODO: Save these somewhere and allow other users to retrieve them later?
 	// Possibly drop an m.location event in the default channel?
 }

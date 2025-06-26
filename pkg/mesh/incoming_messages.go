@@ -3,6 +3,7 @@ package mesh
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh/connectors"
@@ -141,15 +142,18 @@ func (c *MeshtasticClient) requestKey(nodeID meshid.NodeID, handler KeyRequestFu
 
 // isUnmessagable indicates if a particular node is either flagged or has a role that is unable to receive messages
 func isUnmessagable(user *pb.User) bool {
+	return (user.IsUnmessagable != nil && *user.IsUnmessagable) || isUnmessagableRole(user.Role)
+}
+
+func isUnmessagableRole(role pb.Config_DeviceConfig_Role) bool {
 	// https://github.com/meshtastic/Meshtastic-Android/blob/6408b22c6d946098ce9d80efb918876c8b7122cf/app/src/main/java/com/geeksville/mesh/model/Node.kt#L148
-	return (user.IsUnmessagable != nil && *user.IsUnmessagable) ||
-		user.Role == pb.Config_DeviceConfig_REPEATER ||
-		user.Role == pb.Config_DeviceConfig_ROUTER ||
-		user.Role == pb.Config_DeviceConfig_ROUTER_LATE ||
-		user.Role == pb.Config_DeviceConfig_SENSOR ||
-		user.Role == pb.Config_DeviceConfig_TRACKER ||
-		user.Role == pb.Config_DeviceConfig_TAK ||
-		user.Role == pb.Config_DeviceConfig_TAK_TRACKER
+	return role == pb.Config_DeviceConfig_REPEATER ||
+		role == pb.Config_DeviceConfig_ROUTER ||
+		role == pb.Config_DeviceConfig_ROUTER_LATE ||
+		role == pb.Config_DeviceConfig_SENSOR ||
+		role == pb.Config_DeviceConfig_TRACKER ||
+		role == pb.Config_DeviceConfig_TAK ||
+		role == pb.Config_DeviceConfig_TAK_TRACKER
 }
 
 func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, message *pb.Data) error {
@@ -177,6 +181,11 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 		WantResponse: message.WantResponse,
 		IsNeighbor:   packet.Source != connectors.PacketSourceMQTT && packet.HopStart == packet.HopLimit,
 	}
+
+	if meshEventEnv.Timestamp == 0 {
+		meshEventEnv.Timestamp = uint32(time.Now().Unix())
+	}
+
 	var err error
 	var evt any = meshEventEnv
 
@@ -202,8 +211,10 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 		proto.Unmarshal(message.Payload, &user)
 		evt = &MeshNodeInfoEvent{
 			MeshEvent:      meshEventEnv,
+			UserID:         user.Id,
 			LongName:       user.LongName,
 			ShortName:      user.ShortName,
+			Role:           user.Role.String(),
 			PublicKey:      user.PublicKey,
 			IsLicensed:     user.IsLicensed,
 			IsUnmessagable: isUnmessagable(&user),
@@ -241,8 +252,10 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 			MeshEvent:        meshEventEnv,
 			LongName:         pos.LongName,
 			ShortName:        pos.ShortName,
+			Role:             pos.Role.String(),
 			FirmwareVersion:  pos.FirmwareVersion,
 			OnlineLocalNodes: pos.NumOnlineLocalNodes,
+			IsUnmessagable:   isUnmessagableRole(pos.Role),
 			Location: meshid.GeoURI{
 				Latitude:    float32(pos.LatitudeI) * 1e-7,
 				Longitude:   float32(pos.LongitudeI) * 1e-7,

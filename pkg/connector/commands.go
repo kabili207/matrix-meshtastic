@@ -108,7 +108,7 @@ func fnUpdateNames(ce *commands.Event) {
 	} else if conn, ok := ce.Bridge.Network.(*MeshtasticConnector); !ok {
 		ce.Log.Error().Msg("Unable to cast MeshtasticConnector")
 		ce.Reply("Failed to get Meshtastic connector (how?!)")
-	} else if err := conn.UpdateGhostMeshNames(ce.Ctx, meshid.MakeUserID(nodeID), longName, shortName); err != nil {
+	} else if err := conn.UpdateGhostMeshNames(ce.Ctx, meshid.MakeUserID(nodeID), userMXID, longName, shortName); err != nil {
 		ce.Log.Err(err).Msg("Unable to update user's mesh names")
 		ce.Reply("Unable to set your names on Meshtastic: %v", err)
 	} else {
@@ -147,31 +147,21 @@ func fnNodeInfo(ce *commands.Event) {
 	// Just so it's marked as used for now
 	_ = isMeshNode
 
-	if ghost, err := ce.Bridge.GetExistingGhostByID(ce.Ctx, meshid.MakeUserID(nodeID)); err != nil {
-		ce.Log.Err(err).Msg("Unable to find existing ghost for node")
+	if conn, ok := ce.Bridge.Network.(*MeshtasticConnector); !ok {
+		ce.Log.Error().Msg("Unable to cast Meshtastic connector (how?!)")
+	} else if nodeInfo, err := conn.meshDB.MeshNodeInfo.GetByNodeID(ce.Ctx, nodeID); err != nil {
+		ce.Log.Err(err).Msg("Unable to search for node info")
 		ce.Reply("Failed to fetch node info: %v", err)
+	} else if nodeInfo == nil || nodeInfo.LongName == "" || nodeInfo.ShortName == "" {
+		ce.Reply("Unknown node %s. Sending request to mesh", nodeID)
+		conn.requestGhostNodeInfo(meshid.MakeUserID(nodeID))
+		return
 	} else {
-
-		if ghost == nil || string(ghost.ID) == ghost.Name || ghost.Name == "" {
-			if conn, ok := ce.Bridge.Network.(*MeshtasticConnector); ok {
-				conn.requestGhostNodeInfo(meshid.MakeUserID(nodeID))
-			}
-			ce.Reply("Unknown node %s. Sending request to mesh", nodeID)
-			return
-		}
-
-		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
-		if !ok {
-			meta = &meshid.GhostMetadata{}
-		}
-		longName := meta.LongName
-		shortName := meta.ShortName
-		pubKey := "*not generated*"
-		if longName == "" || shortName == "" {
-			longName, shortName = nodeID.GetDefaultNodeNames()
-		}
-		if len(meta.PublicKey) > 0 {
-			pubKey = fmt.Sprintf("`%s`", base64.StdEncoding.EncodeToString(meta.PublicKey))
+		longName := nodeInfo.LongName
+		shortName := nodeInfo.ShortName
+		pubKey := "*unknown*"
+		if len(nodeInfo.PublicKey) > 0 {
+			pubKey = fmt.Sprintf("`%s`", base64.StdEncoding.EncodeToString(nodeInfo.PublicKey))
 		}
 		ce.Reply("**Node ID:** %s\n**Long Name:** %s\n**Short Name:** %s\n**Public Key:** %s", nodeID, longName, shortName, pubKey)
 	}

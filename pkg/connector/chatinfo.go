@@ -44,8 +44,10 @@ func (mc *MeshtasticClient) wrapDMInfo(synthNode, remoteNode meshid.NodeID) *bri
 func (c MeshtasticConnector) setDMNames(info *bridgev2.ChatInfo, ghost *bridgev2.Ghost) {
 	if ghost.Name != "" {
 		info.Name = &ghost.Name
-		if meta, ok := ghost.Metadata.(*meshid.GhostMetadata); ok && meta.ShortName != "" {
-			info.Name = ptr.Ptr(fmt.Sprintf("%s (%s)", *info.Name, meta.ShortName))
+		if nodeID, err := meshid.ParseUserID(ghost.ID); err != nil {
+			c.log.Err(err).Msg("Unable to parse ghost user ID")
+		} else if nodeInfo, err := c.meshDB.MeshNodeInfo.GetByNodeID(context.Background(), nodeID); err == nil && nodeInfo != nil {
+			info.Name = ptr.Ptr(fmt.Sprintf("%s (%s)", nodeInfo.LongName, nodeInfo.ShortName))
 		}
 	}
 }

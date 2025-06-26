@@ -103,9 +103,21 @@ func (tc *MeshtasticClient) GetChatInfo(ctx context.Context, portal *bridgev2.Po
 }
 
 func (c *MeshtasticClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
-	return &bridgev2.UserInfo{
-		Name: ptr.Ptr(string(ghost.ID)),
-	}, nil
+	if nodeID, err := meshid.ParseUserID(ghost.ID); err != nil {
+		return nil, err
+	} else if nodeInfo, err := c.main.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID); err != nil {
+		return nil, err
+	} else if nodeInfo != nil && nodeInfo.LongName != "" {
+		return &bridgev2.UserInfo{
+			Name: ptr.Ptr(nodeInfo.LongName),
+		}, nil
+	} else {
+		long, _ := nodeID.GetDefaultNodeNames()
+		return &bridgev2.UserInfo{
+			Name: ptr.Ptr(long),
+		}, nil
+	}
+
 }
 
 func (c *MeshtasticClient) ResolveIdentifier(ctx context.Context, identifier string, createChat bool) (*bridgev2.ResolveIdentifierResponse, error) {

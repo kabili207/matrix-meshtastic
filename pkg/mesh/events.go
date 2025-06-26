@@ -47,10 +47,12 @@ type MeshWaypointEvent struct {
 
 type MeshNodeInfoEvent struct {
 	MeshEvent
+	UserID         string
 	ShortName      string
 	LongName       string
-	IsLicensed     bool
+	Role           string
 	PublicKey      []byte
+	IsLicensed     bool
 	IsUnmessagable bool
 }
 
@@ -64,6 +66,8 @@ type MeshMapReportEvent struct {
 	Location         meshid.GeoURI
 	ShortName        string
 	LongName         string
+	Role             string
+	IsUnmessagable   bool
 	FirmwareVersion  string
 	OnlineLocalNodes uint32
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"log/slog"
 
+	"github.com/kabili207/matrix-meshtastic/pkg/connector/meshdb"
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"github.com/kabili207/matrix-meshtastic/pkg/msgconv"
@@ -21,6 +22,7 @@ type MeshtasticConnector struct {
 	log              zerolog.Logger
 	bridge           *bridgev2.Bridge
 	Config           Config
+	meshDB           *meshdb.Database
 	baseNodeID       meshid.NodeID
 	meshClient       *mesh.MeshtasticClient
 	MsgConv          *msgconv.MessageConverter
@@ -39,8 +41,9 @@ func NewMeshtasticConnector(log zerolog.Logger) *MeshtasticConnector {
 }
 
 func (c *MeshtasticConnector) Init(bridge *bridgev2.Bridge) {
+	c.meshDB = meshdb.New(bridge.DB.Database, bridge.Log.With().Str("db_section", "meshtastic").Logger())
 	c.bridge = bridge
-	c.MsgConv = msgconv.New(bridge)
+	c.MsgConv = msgconv.New(bridge, c.meshDB)
 	c.log = c.bridge.Log
 	if c.managedNodeCache == nil {
 		c.managedNodeCache = map[meshid.NodeID]bool{}
@@ -134,6 +137,9 @@ func (tc *MeshtasticConnector) GetDBMetaTypes() database.MetaTypes {
 
 func (c *MeshtasticConnector) Start(ctx context.Context) error {
 	c.log.Info().Msg("MeshtasticConnector Start called")
+
+	c.meshDB.Upgrade(ctx)
+
 	c.meshClient = mesh.NewMeshtasticClient(c.GetBaseNodeID(), c.log.With().Logger())
 	c.meshClient.SetHopLimit(c.Config.HopLimit)
 

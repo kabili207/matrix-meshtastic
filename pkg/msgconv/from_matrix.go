@@ -6,10 +6,8 @@ import (
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
-	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
-	"maunium.net/go/mautrix/id"
 )
 
 func (mc *MessageConverter) ToMeshtastic(ctx context.Context, evt *event.Event, content *event.MessageEventContent) (string, error) {
@@ -35,21 +33,14 @@ func (mc *MessageConverter) convertPill(displayname, mxid, eventID string, ctx f
 		return format.DefaultPillConverter(displayname, mxid, eventID, ctx)
 	}
 
-	var g *bridgev2.Ghost
 	var node meshid.NodeID
-	m := id.UserID(mxid)
-	if mc.Bridge.IsGhostMXID(m) {
-		g, _ = mc.Bridge.GetGhostByMXID(ctx.Ctx, m)
-	} else {
-		node = meshid.MXIDToNodeID(m)
-		g, _ = mc.Bridge.GetGhostByID(ctx.Ctx, meshid.MakeUserID(node))
+
+	if nodeInfo, err := mc.MeshDB.MeshNodeInfo.GetByNodeID(ctx.Ctx, node); err != nil {
+		mc.Bridge.Log.Err(err).Msg("Unable to query node info")
+	} else if nodeInfo != nil {
+		return fmt.Sprintf("@%s", nodeInfo.ShortName)
 	}
 
-	if g != nil {
-		if meta, ok := g.Metadata.(*meshid.GhostMetadata); ok && meta.ShortName != "" {
-			return fmt.Sprintf("@%s", meta.ShortName)
-		}
-	}
 	nodeStr := node.String()
 	shortName := nodeStr[len(nodeStr)-4:]
 	return fmt.Sprintf("@%s", shortName)

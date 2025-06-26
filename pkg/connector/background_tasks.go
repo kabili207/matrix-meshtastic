@@ -5,8 +5,8 @@ import (
 	"math/rand/v2"
 	"time"
 
+	"github.com/kabili207/matrix-meshtastic/pkg/connector/meshdb"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
-	"maunium.net/go/mautrix/id"
 )
 
 const (
@@ -54,7 +54,7 @@ func (c *MeshtasticConnector) throttleDuration(d time.Duration) time.Duration {
 	return d
 }
 
-func (c *MeshtasticConnector) sendPeriodicHostInfo(ctx context.Context) {
+func (c *MeshtasticConnector) sendPeriodicHostInfo(_ context.Context) {
 	err := c.meshClient.SendHostMetrics(c.GetBaseNodeID(), meshid.BROADCAST_ID)
 	if err != nil {
 		c.log.Err(err).Msg("Unable to send host metrics")
@@ -65,12 +65,12 @@ func (c *MeshtasticConnector) sendPeriodicHostInfo(ctx context.Context) {
 func (c *MeshtasticConnector) sendPeriodicTelemetry(ctx context.Context) {
 	c.meshClient.SendTelemetry(c.GetBaseNodeID(), meshid.BROADCAST_ID)
 
-	c.doForAllManagedGhosts(ctx, func(nodeID meshid.NodeID, meta *meshid.GhostMetadata) {
+	c.doForAllManagedGhosts(ctx, func(meta *meshdb.MeshNodeInfo) {
 		c.log.Info().
 			Str("long_name", meta.LongName).
-			Stringer("node_id", nodeID).
+			Str("node_id", meta.UserID).
 			Msg("Broadcasting periodic telemetry")
-		c.meshClient.SendTelemetry(nodeID, meshid.BROADCAST_ID)
+		c.meshClient.SendTelemetry(meta.NodeID, meshid.BROADCAST_ID)
 	})
 	// Offset things a tad so we don't overload the mesh
 	c.meshClient.SendHostMetrics(c.GetBaseNodeID(), meshid.BROADCAST_ID)
@@ -78,9 +78,9 @@ func (c *MeshtasticConnector) sendPeriodicTelemetry(ctx context.Context) {
 
 func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 
-	directNeighbors, err := c.bridge.DB.Ghost.GetByMetadata(ctx, "direct_neighbor", true)
+	directNeighbors, err := c.meshDB.MeshNodeInfo.GetDirectNeighbors(ctx)
 	if err != nil {
-		c.log.Err(err).Msg("Unable to fetch bridge neighbors")
+		c.log.Err(err).Msg("Unable to fetch direct neighbors")
 		return
 	}
 
@@ -88,10 +88,8 @@ func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 	maxAge := time.Now().UTC().Add(-2 * rateNeighborInfo)
 
 	for _, g := range directNeighbors {
-		if meta, ok := g.Metadata.(*meshid.GhostMetadata); ok && meta.LastSeen != nil && meta.LastSeen.After(maxAge) {
-			if id, err := meshid.ParseNodeID(string(g.ID)); err == nil {
-				nodeIDs = append(nodeIDs, id)
-			}
+		if g.LastSeen != nil && g.LastSeen.After(maxAge) {
+			nodeIDs = append(nodeIDs, g.NodeID)
 		}
 	}
 	c.meshClient.SendNeighborInfo(c.GetBaseNodeID(), nodeIDs, uint32(rateNeighborInfo.Seconds()))
@@ -100,37 +98,36 @@ func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 func (c *MeshtasticConnector) sendPeriodicNodeInfo(ctx context.Context) {
 	c.meshClient.SendNodeInfo(c.GetBaseNodeID(), meshid.BROADCAST_ID, c.Config.LongName, c.Config.ShortName, false, nil)
 
-	c.doForAllManagedGhosts(ctx, func(nodeID meshid.NodeID, meta *meshid.GhostMetadata) {
+	c.doForAllManagedGhosts(ctx, func(meta *meshdb.MeshNodeInfo) {
 		c.log.Info().
 			Str("long_name", meta.LongName).
-			Stringer("node_id", nodeID).
+			Str("node_id", meta.UserID).
 			Msg("Broadcasting periodic node info")
-		c.meshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, meta.LongName, meta.ShortName, false, meta.PublicKey)
+		c.meshClient.SendNodeInfo(meta.NodeID, meshid.BROADCAST_ID, meta.LongName, meta.ShortName, false, meta.PublicKey)
 	})
 }
 
-func (c *MeshtasticConnector) doForAllManagedGhosts(ctx context.Context, callback func(nodeID meshid.NodeID, meta *meshid.GhostMetadata)) {
-	ghosts, err := c.bridge.DB.Ghost.GetByMetadata(ctx, "is_managed", true)
+func (c *MeshtasticConnector) doForAllManagedGhosts(ctx context.Context, callback func(meta *meshdb.MeshNodeInfo)) {
+	ghosts, err := c.meshDB.MeshNodeInfo.GetManagedNodes(ctx)
 	if err != nil {
-		c.log.Err(err).Msg("Unable to fetch ghosts")
+		c.log.Err(err).Msg("Unable to fetch managed nodes")
 		return
 	}
 
 	maxAge := time.Now().UTC().Add(-7 * 24 * time.Hour)
 
 	for _, g := range ghosts {
-		if meta, ok := g.Metadata.(*meshid.GhostMetadata); ok && meta.UserMXID != "" && meta.LastSeen != nil && meta.LastSeen.After(maxAge) {
+		if g.NodeID != c.GetBaseNodeID() && g.LastSeen != nil && g.LastSeen.After(maxAge) {
 			waitTime := rand.N(300 * time.Second)
-			go func(delay time.Duration, m *meshid.GhostMetadata) {
+			go func(delay time.Duration, m *meshdb.MeshNodeInfo) {
 				select {
 				case <-ctx.Done():
 					break
 				case <-time.After(delay):
-					nodeID := meshid.MXIDToNodeID(id.UserID(m.UserMXID))
-					callback(nodeID, meta)
+					callback(g)
 				}
 
-			}(waitTime, meta)
+			}(waitTime, g)
 		}
 	}
 }
