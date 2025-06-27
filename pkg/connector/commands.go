@@ -62,12 +62,6 @@ func fnJoinChannel(ce *commands.Event) {
 	name := ce.Args[0]
 	key := ce.Args[1]
 
-	_, _ = name, key
-
-	if key == "AQ==" || key == "AQ" {
-		key = "1PG7OiApB1nwvP+rz05pAQ=="
-	}
-
 	if login := ce.User.GetDefaultLogin(); login == nil {
 		ce.Reply("Login not found")
 	} else if !login.Client.IsLoggedIn() {
@@ -75,10 +69,13 @@ func fnJoinChannel(ce *commands.Event) {
 	} else if client, ok := login.Client.(*MeshtasticClient); !ok {
 		ce.Log.Error().Msg("Unable to cast MeshtasticClient")
 		ce.Reply("Failed to get Meshtastic client (how?!)")
-	} else if err := client.MeshClient.AddChannel(name, key); err != nil {
-		ce.Log.Err(err).Msg("Failed to join channel")
+	} else if chanDef, err := meshid.NewChannelDef(name, &key); err != nil {
+		ce.Log.Error().Msg("Failed to create channel definition")
 		ce.Reply("Failed to join channel: %v", err)
-	} else if err := client.joinChannel(name, key); err != nil {
+	} else if err := client.MeshClient.AddChannelDef(chanDef); err != nil {
+		ce.Log.Err(err).Msg("Failed to add channel to client")
+		ce.Reply("Failed to join channel: %v", err)
+	} else if err := client.joinChannel(name, chanDef.GetKeyString()); err != nil {
 		ce.Log.Err(err).Msg("Failed to join channel")
 		ce.Reply("Failed to join channel: %v", err)
 	} else {

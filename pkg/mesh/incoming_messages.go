@@ -118,10 +118,10 @@ func (c *MeshtasticClient) tryDecryptPSK(packet *connectors.NetworkMeshPacket) (
 	}
 	data, err := (*pb.Data)(nil), (error)(nil)
 	for _, v := range c.channels {
-		if v.GetName() == packet.ChannelName && v.GetPublicKey() != "" {
+		if v.GetName() == packet.ChannelName && v.GetKeyString() != "" {
 			data, err = radio.TryDecode(packet.MeshPacket, v.GetKeyBytes())
 			if err == nil && data != nil {
-				packet.ChannelKey = ptr.Ptr(v.GetPublicKey())
+				packet.ChannelKey = ptr.Ptr(v.GetKeyString())
 				return data, err
 			}
 		}

@@ -196,7 +196,7 @@ func (c *MeshtasticClient) AddChannel(channelName, key string) error {
 }
 func (c *MeshtasticClient) AddChannelDef(channelDef meshid.ChannelDef) error {
 
-	chanKey := channelDef.GetPublicKey()
+	chanKey := channelDef.GetKeyString()
 	c.notifyEvent(&MeshChannelJoined{
 		ChannelID:  channelDef.GetName(),
 		ChannelKey: &chanKey,

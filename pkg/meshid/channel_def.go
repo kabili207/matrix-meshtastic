@@ -7,7 +7,7 @@ import (
 
 type ChannelDef interface {
 	GetName() string
-	GetPublicKey() string
+	GetKeyString() string
 	GetKeyBytes() []byte
 }
 
@@ -60,7 +60,7 @@ func (c *channelDefImpl) GetName() string {
 	return c.name
 }
 
-func (c *channelDefImpl) GetPublicKey() string {
+func (c *channelDefImpl) GetKeyString() string {
 	if c.key == nil {
 		return ""
 	}
