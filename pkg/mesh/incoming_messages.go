@@ -295,13 +295,21 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 		if w.LatitudeI != nil && w.LongitudeI != nil {
 			lat := float32(*w.LatitudeI) * 1e-7
 			lon := float32(*w.LongitudeI) * 1e-7
+			expiration := time.Unix(int64(w.Expire), 0)
+			var lockedTo *meshid.NodeID
+			if w.LockedTo != 0 && w.LockedTo != uint32(meshid.BROADCAST_ID) && w.LockedTo != uint32(meshid.BROADCAST_ID_NO_LORA) {
+				lockedTo = ptr.Ptr(meshid.NodeID(w.LockedTo))
+			}
 			evt = &MeshWaypointEvent{
 				MeshEvent:   meshEventEnv,
+				IsDelete:    expiration.Before(time.Now()),
 				Latitude:    lat,
 				Longitude:   lon,
+				LockedTo:    lockedTo,
 				Name:        w.Name,
 				Description: w.Description,
 				Icon:        string(rune(w.Icon)),
+				Expires:     &expiration,
 			}
 		}
 	}

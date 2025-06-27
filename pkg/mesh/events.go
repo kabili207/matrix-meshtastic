@@ -1,6 +1,10 @@
 package mesh
 
-import "github.com/kabili207/matrix-meshtastic/pkg/meshid"
+import (
+	"time"
+
+	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
+)
 
 type MeshEvent struct {
 	ChannelName  string
@@ -38,11 +42,15 @@ type MeshLocationEvent struct {
 
 type MeshWaypointEvent struct {
 	MeshEvent
+	WaypointID  uint32
+	IsDelete    bool
 	Name        string
 	Description string
 	Latitude    float32
 	Longitude   float32
 	Icon        string
+	LockedTo    *meshid.NodeID
+	Expires     *time.Time
 }
 
 type MeshNodeInfoEvent struct {

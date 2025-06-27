@@ -11,6 +11,7 @@ import (
 type Database struct {
 	*dbutil.Database
 	MeshNodeInfo *MeshNodeInfoQuery
+	Waypoint     *WaypointQuery
 }
 
 func New(db *dbutil.Database, log zerolog.Logger) *Database {
@@ -19,6 +20,9 @@ func New(db *dbutil.Database, log zerolog.Logger) *Database {
 		Database: db,
 		MeshNodeInfo: &MeshNodeInfoQuery{
 			QueryHelper: dbutil.MakeQueryHelper(db, newMeshNodeInfo),
+		},
+		Waypoint: &WaypointQuery{
+			QueryHelper: dbutil.MakeQueryHelper(db, newWaypoint),
 		},
 	}
 }

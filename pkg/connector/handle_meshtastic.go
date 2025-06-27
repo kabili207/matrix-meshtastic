@@ -497,9 +497,37 @@ func (c *MeshtasticConnector) handleMeshWaypoint(evt *mesh.MeshWaypointEvent) {
 		Str("name", evt.Name).
 		Str("description", evt.Description).
 		Str("icon", evt.Icon).
+		//Stringer("locked_to", evt.LockedTo).
+		//Time("expires", *evt.Expires).
 		Msg("Waypoint received")
 
-	c.meshDB.MeshNodeInfo.SetLastSeen(context.Background(), evt.From, evt.IsNeighbor)
-	// TODO: Save these somewhere and allow other users to retrieve them later?
-	// Possibly drop an m.location event in the default channel?
+	ctx := context.Background()
+	c.meshDB.MeshNodeInfo.SetLastSeen(ctx, evt.From, evt.IsNeighbor)
+	if evt.IsDelete {
+		if err := c.meshDB.Waypoint.DeleteByID(ctx, evt.WaypointID); err != nil {
+			log.Err(err).Msg("Error deleting waypoint")
+		}
+	} else if waypoint, err := c.meshDB.Waypoint.GetByWaypointID(ctx, evt.WaypointID); err != nil {
+		log.Err(err).Msg("Error checking for existing waypoint")
+	} else if waypoint != nil && waypoint.LockedTo != nil && *waypoint.LockedTo != evt.From {
+		log.Err(err).Msgf("This waypoint is locked to another node")
+	} else {
+		if waypoint == nil {
+			waypoint = c.meshDB.Waypoint.New()
+			waypoint.WaypointID = evt.WaypointID
+		}
+		waypoint.Name = evt.Name
+		waypoint.Description = evt.Description
+		waypoint.Icon = evt.Icon
+		waypoint.Expires = evt.Expires
+		waypoint.Latitude = evt.Latitude
+		waypoint.Longitude = evt.Longitude
+		waypoint.UpdatedBy = evt.From
+		waypoint.UpdatedDate = ptr.Ptr(time.Unix(int64(evt.Timestamp), 0))
+		waypoint.LockedTo = evt.LockedTo
+		if err := waypoint.SetAll(ctx); err != nil {
+			log.Err(err).Msg("Error saving waypoint")
+		}
+	}
+	// TODO: Possibly drop an m.location event in associated channel?
 }
