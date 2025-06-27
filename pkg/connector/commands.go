@@ -154,8 +154,12 @@ func fnNodeInfo(ce *commands.Event) {
 		ce.Log.Err(err).Msg("Unable to search for node info")
 		ce.Reply("Failed to fetch node info: %v", err)
 	} else if nodeInfo == nil || nodeInfo.LongName == "" || nodeInfo.ShortName == "" {
-		ce.Reply("Unknown node %s. Sending request to mesh", nodeID)
-		conn.sendNodeInfo(fromNode, nodeID, true)
+		if isMeshNode {
+			ce.Reply("Unknown node %s. Sending request to mesh", nodeID)
+			conn.sendNodeInfo(fromNode, nodeID, true)
+		} else {
+			ce.Reply("Matrix user %s is not associated with a Meshtastic node", userMXID)
+		}
 		return
 	} else {
 		longName := nodeInfo.LongName
