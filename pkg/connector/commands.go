@@ -119,6 +119,7 @@ func fnUpdateNames(ce *commands.Event) {
 func fnNodeInfo(ce *commands.Event) {
 
 	userMXID := ce.User.MXID
+	fromNode := meshid.MXIDToNodeID(userMXID)
 	isMeshNode := false
 
 	if len(ce.Args) > 0 {
@@ -154,7 +155,7 @@ func fnNodeInfo(ce *commands.Event) {
 		ce.Reply("Failed to fetch node info: %v", err)
 	} else if nodeInfo == nil || nodeInfo.LongName == "" || nodeInfo.ShortName == "" {
 		ce.Reply("Unknown node %s. Sending request to mesh", nodeID)
-		conn.requestGhostNodeInfo(meshid.MakeUserID(nodeID))
+		conn.sendNodeInfo(fromNode, nodeID, true)
 		return
 	} else {
 		longName := nodeInfo.LongName
