@@ -309,7 +309,7 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 
 func (c *MeshtasticConnector) handleMapReport(evt *mesh.MeshMapReportEvent) {
 	log := c.log.With().
-		Str("action", "handle_mesh_nodeinfo").
+		Str("action", "handle_mesh_map_report").
 		Stringer("from_node_id", evt.From).
 		Stringer("to_node_id", evt.To).
 		Logger()
@@ -340,10 +340,15 @@ func (c *MeshtasticConnector) handleMapReport(evt *mesh.MeshMapReportEvent) {
 		mn.ShortName = evt.ShortName
 		needUpdate = true
 	}
-
+	if mn.Role != evt.Role {
+		// MapReports don't actually contain the IsMessageable flag, however the firmware
+		// forcibly updates this flag when changing to a different role, so it is relatively
+		// safe for us to do the same if we haven't received a NodeInfo packet yet
+		mn.IsUnmessagable = evt.IsUnmessagableRole
+	}
 	mn.Role = evt.Role
 	mn.IsDirect = evt.IsNeighbor
-	mn.IsUnmessagable = evt.IsUnmessagable
+
 	mn.LastSeen = ptr.Ptr(time.Unix(int64(evt.Timestamp), 0))
 	err = mn.SetAll(ctx)
 	if err != nil {

@@ -71,11 +71,11 @@ type MeshChannelJoined struct {
 
 type MeshMapReportEvent struct {
 	MeshEvent
-	Location         meshid.GeoURI
-	ShortName        string
-	LongName         string
-	Role             string
-	IsUnmessagable   bool
-	FirmwareVersion  string
-	OnlineLocalNodes uint32
+	Location           meshid.GeoURI
+	ShortName          string
+	LongName           string
+	Role               string
+	IsUnmessagableRole bool
+	FirmwareVersion    string
+	OnlineLocalNodes   uint32
 }

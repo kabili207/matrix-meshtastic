@@ -55,9 +55,16 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 		}
 	case database.RoomTypeDM:
 		targetNode, _, err = meshid.ParseDMPortalID(msg.Portal.ID)
-		messIDSender = targetNode.String()
-		if pubKey, err := c.main.getGhostPublicKey(ctx, targetNode); err == nil && len(pubKey) > 0 {
-			usePKI = true
+		if err == nil {
+			if nodeInfo, err2 := c.main.meshDB.MeshNodeInfo.GetByNodeID(ctx, targetNode); err2 == nil && nodeInfo != nil {
+				if nodeInfo.IsUnmessagable {
+					err = errors.New("node is marked as unmesseagable")
+				}
+			}
+			messIDSender = targetNode.String()
+			if pubKey, err := c.main.getGhostPublicKey(ctx, targetNode); err == nil && len(pubKey) > 0 {
+				usePKI = true
+			}
 		}
 	default:
 		err = fmt.Errorf("unsupported room type: %s", msg.Portal.Portal.RoomType)
@@ -232,22 +239,6 @@ func (c *MeshtasticConnector) updateDMPortalInfo(ctx context.Context, ghost *bri
 
 	}
 }
-
-/*
-func (c *MeshtasticConnector) updateGhostPrivateKey(privateKey []byte) func(context.Context, *bridgev2.Ghost) bool {
-	return func(_ context.Context, ghost *bridgev2.Ghost) bool {
-		meta, ok := ghost.Metadata.(*meshid.GhostMetadata)
-		if !ok {
-			meta = &meshid.GhostMetadata{}
-		}
-		forceSave := !slices.Equal(meta.PrivateKey, privateKey)
-		meta.PrivateKey = privateKey
-		if nodeID, err := meshid.ParseUserID(ghost.ID); len(privateKey) > 0 && err == nil {
-			c.sendNodeInfo(nodeID, meshid.BROADCAST_ID, false)
-		}
-		return forceSave
-	}
-}*/
 
 func (c *MeshtasticConnector) getGhostPublicKey(ctx context.Context, nodeID meshid.NodeID) ([]byte, error) {
 	if nodeInfo, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID); err != nil {

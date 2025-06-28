@@ -27,7 +27,11 @@ func (c *MeshtasticClient) handleMeshPacket(packet connectors.NetworkMeshPacket)
 	gateway := packet.GatewayNode
 	if gateway == 0 {
 		// This will only be the last byte of the relay node
-		gateway = meshid.NodeID(packet.RelayNode)
+		if packet.HopStart == packet.HopLimit && packet.RelayNode == (packet.From&0xFF) {
+			gateway = meshid.NodeID(packet.From)
+		} else {
+			gateway = meshid.NodeID(packet.RelayNode)
+		}
 	}
 	log := c.log.With().
 		Uint32("packet_id", packet.Id).
@@ -142,7 +146,10 @@ func (c *MeshtasticClient) requestKey(nodeID meshid.NodeID, handler KeyRequestFu
 
 // isUnmessagable indicates if a particular node is either flagged or has a role that is unable to receive messages
 func isUnmessagable(user *pb.User) bool {
-	return (user.IsUnmessagable != nil && *user.IsUnmessagable) || isUnmessagableRole(user.Role)
+	if user.IsUnmessagable != nil {
+		return *user.IsUnmessagable
+	}
+	return isUnmessagableRole(user.Role)
 }
 
 func isUnmessagableRole(role pb.Config_DeviceConfig_Role) bool {
@@ -249,13 +256,13 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 			alt = ptr.Ptr(float32(pos.Altitude))
 		}
 		evt = &MeshMapReportEvent{
-			MeshEvent:        meshEventEnv,
-			LongName:         pos.LongName,
-			ShortName:        pos.ShortName,
-			Role:             pos.Role.String(),
-			FirmwareVersion:  pos.FirmwareVersion,
-			OnlineLocalNodes: pos.NumOnlineLocalNodes,
-			IsUnmessagable:   isUnmessagableRole(pos.Role),
+			MeshEvent:          meshEventEnv,
+			LongName:           pos.LongName,
+			ShortName:          pos.ShortName,
+			Role:               pos.Role.String(),
+			FirmwareVersion:    pos.FirmwareVersion,
+			OnlineLocalNodes:   pos.NumOnlineLocalNodes,
+			IsUnmessagableRole: isUnmessagableRole(pos.Role),
 			Location: meshid.GeoURI{
 				Latitude:    float32(pos.LatitudeI) * 1e-7,
 				Longitude:   float32(pos.LongitudeI) * 1e-7,
