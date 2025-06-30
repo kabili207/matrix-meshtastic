@@ -178,6 +178,9 @@ func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID n
 		nodeInfo.UserID = nodeID.String()
 		nodeInfo.IsDirect = true
 		nodeInfo.IsManaged = true
+	}
+
+	if len(nodeInfo.PrivateKey) == 0 {
 		c.log.Debug().Msg("Generating new keypair")
 		pub, priv, err := c.meshClient.GenerateKeyPair()
 		if err != nil {
@@ -186,6 +189,7 @@ func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID n
 		nodeInfo.PublicKey = pub
 		nodeInfo.PrivateKey = priv
 	}
+
 	nodeInfo.LongName = longName
 	nodeInfo.ShortName = longName
 	nodeInfo.SetAll(ctx)

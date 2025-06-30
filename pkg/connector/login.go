@@ -111,6 +111,11 @@ func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string
 
 	userNodeId := meshid.MXIDToNodeID(sl.User.MXID)
 
+	if err := sl.Main.UpdateGhostMeshNames(ctx, meshid.MakeUserID(userNodeId), sl.User.MXID, long_name, short_name); err != nil {
+		sl.Log.Err(err).Msg("Failed to create user login entry")
+		return nil, fmt.Errorf("failed to create user login: %w", err)
+	}
+
 	// Correct type is networkid.UserLoginID
 	var loginID networkid.UserLoginID = meshid.MakeUserLoginID(userNodeId)
 
