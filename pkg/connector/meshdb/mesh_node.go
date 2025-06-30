@@ -110,7 +110,7 @@ func (q *MeshNodeInfoQuery) SetLastSeen(ctx context.Context, nodeID meshid.NodeI
 func (f *MeshNodeInfo) Scan(row dbutil.Scannable) (*MeshNodeInfo, error) {
 	var ts *int64
 	err := row.Scan(&f.NodeID, &f.UserID, &f.LongName, &f.ShortName, &f.Role, &f.IsLicensed, &f.IsUnmessagable, &f.IsManaged, &f.IsDirect, &f.PublicKey, &f.PrivateKey, &ts)
-	if err != nil && ts != nil {
+	if err == nil && ts != nil {
 		f.LastSeen = ptr.Ptr(time.Unix(*ts, 0))
 	}
 	return f, err

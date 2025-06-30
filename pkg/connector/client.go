@@ -27,17 +27,58 @@ var _ bridgev2.NetworkAPI = (*MeshtasticClient)(nil)
 var _ bridgev2.IdentifierResolvingNetworkAPI = (*MeshtasticClient)(nil)
 
 func (mc *MeshtasticClient) Connect(ctx context.Context) {
-	err := mc.MeshClient.Connect()
+	nodeID := meshid.MXIDToNodeID(mc.UserLogin.UserMXID)
+	nodeInfo, err := mc.main.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID)
 	if err != nil {
 		mc.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateBadCredentials,
-			Error:      "meshtastic-api-error",
-			Message:    "Failed to connect to server",
+			Error:      "meshtastic-node-db-error",
+			Message:    "Failed to retrieve node info",
 			Info: map[string]any{
 				"go_error": err.Error(),
 			},
 		})
 		return
+	}
+	if nodeInfo == nil {
+		mc.UserLogin.BridgeState.Send(status.BridgeState{
+			StateEvent: status.StateBadCredentials,
+			Error:      "meshtastic-node-info-missing",
+			Message:    "Node info for this user is missing",
+			Info: map[string]any{
+				"node_id": nodeID.String(),
+			},
+		})
+		return
+	}
+	if len(nodeInfo.PrivateKey) == 0 {
+		mc.log.Debug().Msg("Generating new keypair")
+		pub, priv, err := mc.main.meshClient.GenerateKeyPair()
+		if err != nil {
+			mc.UserLogin.BridgeState.Send(status.BridgeState{
+				StateEvent: status.StateBadCredentials,
+				Error:      "meshtastic-key-pair-generation-error",
+				Message:    "Unable to generate key pair",
+				Info: map[string]any{
+					"go_error": err.Error(),
+				},
+			})
+			return
+		}
+		nodeInfo.PublicKey = pub
+		nodeInfo.PrivateKey = priv
+
+		if err := nodeInfo.SetAll(ctx); err != nil {
+			mc.UserLogin.BridgeState.Send(status.BridgeState{
+				StateEvent: status.StateBadCredentials,
+				Error:      "meshtastic-node-info-save-error",
+				Message:    "Unable to save updated node info",
+				Info: map[string]any{
+					"go_error": err.Error(),
+				},
+			})
+			return
+		}
 	}
 	mc.MeshClient.AddEventHandler(mc.handleMeshEvent)
 }

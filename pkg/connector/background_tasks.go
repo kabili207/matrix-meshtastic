@@ -72,7 +72,7 @@ func (c *MeshtasticConnector) sendPeriodicTelemetry(ctx context.Context) {
 			Msg("Broadcasting periodic telemetry")
 		c.meshClient.SendTelemetry(meta.NodeID, meshid.BROADCAST_ID)
 	})
-	// Offset things a tad so we don't overload the mesh
+	// TODO: Offset things a tad so we don't overload the mesh
 	c.meshClient.SendHostMetrics(c.GetBaseNodeID(), meshid.BROADCAST_ID)
 }
 
@@ -92,18 +92,23 @@ func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 			nodeIDs = append(nodeIDs, g.NodeID)
 		}
 	}
-	c.meshClient.SendNeighborInfo(c.GetBaseNodeID(), nodeIDs, uint32(rateNeighborInfo.Seconds()))
+	if err := c.meshClient.SendNeighborInfo(c.GetBaseNodeID(), nodeIDs, uint32(rateNeighborInfo.Seconds())); err != nil {
+		c.log.Err(err).Msg("Failed to send perioid neighbor info")
+	}
 }
 
 func (c *MeshtasticConnector) sendPeriodicNodeInfo(ctx context.Context) {
 	c.meshClient.SendNodeInfo(c.GetBaseNodeID(), meshid.BROADCAST_ID, c.Config.LongName, c.Config.ShortName, false, nil)
 
 	c.doForAllManagedGhosts(ctx, func(meta *meshdb.MeshNodeInfo) {
-		c.log.Info().
+		log := c.log.Info().
 			Str("long_name", meta.LongName).
-			Str("node_id", meta.UserID).
-			Msg("Broadcasting periodic node info")
-		c.meshClient.SendNodeInfo(meta.NodeID, meshid.BROADCAST_ID, meta.LongName, meta.ShortName, false, meta.PublicKey)
+			Str("node_id", meta.UserID)
+
+		log.Msg("Broadcasting periodic node info")
+		if err := c.meshClient.SendNodeInfo(meta.NodeID, meshid.BROADCAST_ID, meta.LongName, meta.ShortName, false, meta.PublicKey); err != nil {
+			log.Err(err).Msg("Broadcasting node info failed")
+		}
 	})
 }
 

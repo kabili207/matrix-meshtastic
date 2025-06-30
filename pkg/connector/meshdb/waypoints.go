@@ -86,7 +86,7 @@ func (w *Waypoint) SetAll(ctx context.Context) error {
 func (w *Waypoint) Scan(row dbutil.Scannable) (*Waypoint, error) {
 	var expires, updated *int64
 	err := row.Scan(&w.WaypointID, &w.Name, &w.Icon, &w.Description, &w.Latitude, &w.Longitude, &w.LockedTo, &expires, &w.UpdatedBy, &updated)
-	if err != nil {
+	if err == nil {
 		if expires != nil {
 			w.Expires = ptr.Ptr(time.Unix(*expires, 0))
 		}

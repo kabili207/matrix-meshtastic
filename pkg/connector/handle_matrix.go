@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
@@ -132,16 +133,20 @@ func (c *MeshtasticClient) postMessageSave(mxid id.UserID, roomId id.RoomID) fun
 
 		u, err := c.bridge.Matrix.GetMemberInfo(ctx, roomId, mxid)
 		if err != nil {
-			log.Err(err).Str("user_mxid", string(mxid)).Msg("Failed to get user object, ignoring message")
+			log.Err(err).Msg("Failed to get user object, ignoring message")
 			// ignoring this because we only reply to user messages
 			return
 		}
 
-		if !ghost.NameSet && u.Displayname != "" {
-			longName := TruncateString(u.Displayname, 39)
-			senderStr := string(m.SenderID)
-			shortName := senderStr[len(senderStr)-4:]
-			c.main.UpdateGhostMeshNames(ctx, m.SenderID, mxid, longName, shortName)
+		if !ghost.NameSet {
+			nodeID := meshid.MXIDToNodeID(mxid)
+			longName, shortName := nodeID.GetDefaultNodeNames()
+			if strings.TrimSpace(u.Displayname) != "" {
+				longName = TruncateString(strings.TrimSpace(u.Displayname), 39)
+			}
+			if err = c.main.UpdateGhostMeshNames(ctx, m.SenderID, mxid, longName, shortName); err != nil {
+				log.Err(err).Msg("Unable to set fallback ghost names")
+			}
 		}
 	}
 }
@@ -191,8 +196,10 @@ func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID n
 	}
 
 	nodeInfo.LongName = longName
-	nodeInfo.ShortName = longName
-	nodeInfo.SetAll(ctx)
+	nodeInfo.ShortName = shortName
+	if err := nodeInfo.SetAll(ctx); err != nil {
+		return err
+	}
 
 	return c.meshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, longName, shortName, false, nodeInfo.PublicKey)
 }

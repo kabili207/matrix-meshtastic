@@ -13,7 +13,6 @@ import (
 	// Added mautrix for createWelcomeRoomAndSendIntro call
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
-	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/status"
 	// Added event for createWelcomeRoomAndSendIntro call
 	// Added id for createWelcomeRoomAndSendIntro call
@@ -116,8 +115,7 @@ func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string
 		return nil, fmt.Errorf("failed to create user login: %w", err)
 	}
 
-	// Correct type is networkid.UserLoginID
-	var loginID networkid.UserLoginID = meshid.MakeUserLoginID(userNodeId)
+	loginID := meshid.MakeUserLoginID(userNodeId)
 
 	// Create the UserLogin entry in the bridge database
 	ul, err := sl.User.NewLogin(ctx, &database.UserLogin{
@@ -141,11 +139,12 @@ func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string
 	sl.Log.Info().Str("login_id", string(ul.ID)).Msg("Successfully 'logged in' and created user login")
 
 	// Load the user login into memory (important!)
-	// In a real bridge, this would trigger connecting to the remote network for this user.
-	err = sl.Main.LoadUserLogin(ctx, ul) // Calls method on SimpleNetworkConnector
+	err = sl.Main.LoadUserLogin(ctx, ul)
 	if err != nil {
-		// Log the error, but maybe still return success to the user? Depends on desired UX.
-		sl.Log.Err(err).Msg("Failed to load user login after creation (this might indicate an issue)")
+		// We should never see an error here as LoadUserLogin returns a nil value
+		// If we do then something has gone catastrophically wrong
+		sl.Log.Err(err).Msg("Failed to load user login after creation (this shouldn't happen!)")
+		return nil, err
 	}
 
 	return &bridgev2.LoginStep{
