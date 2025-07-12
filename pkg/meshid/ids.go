@@ -117,8 +117,12 @@ func ParseMessageID(messageID networkid.MessageID) (senderOrChannelID string, pa
 }
 
 func ParsePortalID(portalID networkid.PortalID) (channelID string, channelKey string, err error) {
-	parts := strings.Split(string(portalID), separatorPortalID)
-	if len(parts) == 1 {
+	strPortal := string(portalID)
+	lenPortal := len(strPortal)
+	parts := strings.Split(strPortal, separatorPortalID)
+
+	// Be ABSOLUTELY sure this is a portal ID with no key
+	if len(parts) == 1 && lenPortal == lenPortal-len(separatorPortalID) && strings.HasSuffix(strPortal, separatorPortalID) {
 		return parts[0], "", nil
 	}
 	if len(parts) != 2 {
