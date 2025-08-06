@@ -232,7 +232,8 @@ func (c *MeshtasticConnector) requestGhostNodeInfo(ghostID networkid.UserID) {
 		return
 	}
 
-	err = c.meshClient.SendNodeInfo(c.GetBaseNodeID(), nodeId, c.Config.LongName, c.Config.ShortName, true, nil)
+	pubKey, _ := c.getGhostPublicKey(context.Background(), c.GetBaseNodeID())
+	err = c.meshClient.SendNodeInfo(c.GetBaseNodeID(), nodeId, c.Config.LongName, c.Config.ShortName, true, pubKey)
 	if err != nil {
 		log.Err(err).
 			Msg("unable to request node info")
@@ -392,13 +393,6 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 	}
 
 	ctx := log.WithContext(context.Background())
-	if fromNode == c.GetBaseNodeID() {
-		err := c.meshClient.SendNodeInfo(fromNode, toNode, c.Config.LongName, c.Config.ShortName, wantResponse, nil)
-		if err != nil {
-			log.Err(err).Msg("Failed to send node info")
-		}
-		return
-	}
 
 	nodeInfo, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, fromNode)
 	if err != nil {
@@ -406,14 +400,22 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 		return
 	}
 
+	var pubKey []byte = nil
 	notifyUser := false
+	longName, shortName := fromNode.GetDefaultNodeNames()
+
 	if nodeInfo != nil {
-		err = c.meshClient.SendNodeInfo(fromNode, toNode, nodeInfo.LongName, nodeInfo.ShortName, wantResponse, nodeInfo.PublicKey)
+		longName, shortName, pubKey = nodeInfo.LongName, nodeInfo.ShortName, nodeInfo.PublicKey
 	} else {
-		longName, shortName := fromNode.GetDefaultNodeNames()
-		err = c.meshClient.SendNodeInfo(fromNode, toNode, longName, shortName, wantResponse, nil)
 		notifyUser = true
 	}
+
+	if fromNode == c.GetBaseNodeID() {
+		notifyUser = false
+		longName, shortName = c.Config.LongName, c.Config.ShortName
+	}
+
+	err = c.meshClient.SendNodeInfo(fromNode, toNode, longName, shortName, wantResponse, pubKey)
 
 	if err != nil {
 		log.Err(err).Msg("Failed to send node info")
