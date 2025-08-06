@@ -177,7 +177,7 @@ func (c *MeshtasticClient) ResolveIdentifier(ctx context.Context, identifier str
 		UserID: meshid.MakeUserID(remoteNode),
 		Chat: &bridgev2.CreateChatResponse{
 			PortalKey:  c.makeDMPortalKey(remoteNode, myNode),
-			PortalInfo: c.wrapDMInfo(myNode, myNode),
+			PortalInfo: c.wrapDMInfo(myNode, remoteNode),
 		},
 	}, nil
 }
