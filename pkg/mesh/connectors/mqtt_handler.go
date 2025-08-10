@@ -84,7 +84,7 @@ func (h *mqttMessageHandler) SendPacket(channel string, packet *pb.MeshPacket) e
 	}
 
 	// Other connectors should take priority over MQTT, due to restrictions enforced by the firmware
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(700 * time.Millisecond)
 	return h.mqttClient.Publish(&reply)
 }
 

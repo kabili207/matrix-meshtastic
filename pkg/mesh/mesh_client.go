@@ -48,6 +48,7 @@ type MeshtasticClient struct {
 	currentPacketId uint32
 	primaryChannel  meshid.ChannelDef
 	hopLimit        uint32
+	sendLock        sync.Mutex
 
 	previouslyConnected   bool
 	eventHandlers         []MeshEventFunc
@@ -378,7 +379,7 @@ func (c *MeshtasticClient) sendBytes(channel meshid.ChannelDef, rawInfo []byte, 
 	wantAck := false
 
 	now := time.Now()
-	time := uint32(now.Unix())
+	msgTime := uint32(now.Unix())
 
 	packetId := c.generatePacketId()
 
@@ -404,7 +405,7 @@ func (c *MeshtasticClient) sendBytes(channel meshid.ChannelDef, rawInfo []byte, 
 		HopStart:  uint32(maxHops),
 		ViaMqtt:   false,
 		WantAck:   wantAck,
-		RxTime:    time,
+		RxTime:    msgTime,
 		RxSnr:     0,
 		RxRssi:    0,
 		Channel:   channelHash,
@@ -451,6 +452,14 @@ func (c *MeshtasticClient) sendBytes(channel meshid.ChannelDef, rawInfo []byte, 
 
 	conLen := len(c.meshConnectors)
 	errs := make([]error, conLen)
+
+	// We can process packets significantly faster than actual hardware, so we
+	// need to ensure other nodes have time to switch their radios between modes
+	// to transmit and receive
+	c.sendLock.Lock()
+	defer c.sendLock.Unlock()
+	time.Sleep(200 * time.Millisecond)
+
 	var wg sync.WaitGroup
 	wg.Add(conLen)
 
