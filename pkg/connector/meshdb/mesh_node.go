@@ -2,6 +2,9 @@ package meshdb
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
@@ -10,11 +13,12 @@ import (
 )
 
 const (
-	getMeshNodeInfoSelect         = "SELECT id, user_id, long_name, short_name, node_role, is_licensed, is_unmessageable, is_managed, is_direct, public_key, private_key, last_seen FROM mesh_node_info "
-	getMeshNodeInfoByNodeIDQuery  = getMeshNodeInfoSelect + "WHERE id=$1"
-	getMeshNodeInfoByUserIDQuery  = getMeshNodeInfoSelect + "WHERE user_id=$1"
-	getMeshNodeInfoIsManagedQuery = getMeshNodeInfoSelect + "WHERE is_managed=true"
-	getMeshNodeInfoNeighborsQuery = getMeshNodeInfoSelect + "WHERE is_direct=true"
+	getMeshNodeInfoSelect             = "SELECT id, user_id, long_name, short_name, node_role, is_licensed, is_unmessageable, is_managed, is_direct, public_key, private_key, last_seen FROM mesh_node_info "
+	getMeshNodeInfoByNodeIDQuery      = getMeshNodeInfoSelect + "WHERE id=$1"
+	getMeshNodeInfoByUserIDQuery      = getMeshNodeInfoSelect + "WHERE user_id=$1"
+	getMeshNodeInfoByShortUserIDQuery = getMeshNodeInfoSelect + "WHERE user_id LIKE $1"
+	getMeshNodeInfoIsManagedQuery     = getMeshNodeInfoSelect + "WHERE is_managed=true"
+	getMeshNodeInfoNeighborsQuery     = getMeshNodeInfoSelect + "WHERE is_direct=true"
 
 	setMeshNodeInfoNamesQuery = "UPDATE mesh_node_info SET long_name=$1, short_name=$2 WHERE id = $3"
 
@@ -77,6 +81,15 @@ func (q *MeshNodeInfoQuery) GetByNodeID(ctx context.Context, nodeID meshid.NodeI
 
 func (q *MeshNodeInfoQuery) GetByUserID(ctx context.Context, userID string) (*MeshNodeInfo, error) {
 	return q.QueryOne(ctx, getMeshNodeInfoByUserIDQuery, userID)
+}
+
+func (q *MeshNodeInfoQuery) GetByShortUserID(ctx context.Context, userID string) (*MeshNodeInfo, error) {
+	if ok, err := regexp.MatchString("^[0-9a-f]{4}$", userID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, errors.New("short user ID must be a four-character hex code")
+	}
+	return q.QueryOne(ctx, getMeshNodeInfoByShortUserIDQuery, fmt.Sprintf("!____%s", userID))
 }
 
 func (q *MeshNodeInfoQuery) GetDirectNeighbors(ctx context.Context) ([]*MeshNodeInfo, error) {

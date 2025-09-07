@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -17,6 +18,10 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/event"
+)
+
+var (
+	shortUserRegex = regexp.MustCompile(`(?:\b|@\s?)([a-f0-9]{4})\b`)
 )
 
 // Handles events that are more general to the connector
@@ -165,6 +170,29 @@ func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *brid
 	mess := data.Message
 	formatted := ""
 	mentions := &event.Mentions{}
+
+	// TODO: Problems will arise if a node is tagged multiple times
+	// Switch to index version and carefully step through the message
+	matches := shortUserRegex.FindAllStringSubmatch(mess, -1)
+	for _, m := range matches {
+		potential := m[1]
+		if ni, _ := c.main.meshDB.MeshNodeInfo.GetByShortUserID(ctx, potential); ni != nil {
+			nodeUserID := meshid.MakeUserID(ni.NodeID)
+			ghost, err := c.main.getRemoteGhost(ctx, nodeUserID, true)
+			if err != nil {
+				c.log.Err(err).Msg("unable to fetch remote node info")
+				continue
+			}
+
+			ghostMXID := ghost.Intent.GetMXID()
+			userTag := ghostMXID.String()
+
+			mess = strings.Replace(mess, m[0], userTag, 1)
+			formatted = strings.Replace(data.Message, m[0], fmt.Sprintf(`<a href="%s">%s</a>`, ghostMXID.URI().MatrixToURL(), html.EscapeString(userTag)), 1)
+			mentions.UserIDs = append(mentions.UserIDs, ghostMXID)
+		}
+	}
+
 	if strings.Contains(mess, mesh.BellCharacter) {
 		if portal.RoomType == database.RoomTypeDM {
 			user := c.bridge.GetCachedUserLoginByID(portal.Receiver)
@@ -179,6 +207,7 @@ func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *brid
 			mentions.Room = true
 		}
 	}
+
 	content := &event.MessageEventContent{
 		MsgType:       event.MsgText,
 		Body:          mess,

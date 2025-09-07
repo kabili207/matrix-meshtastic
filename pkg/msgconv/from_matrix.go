@@ -2,12 +2,12 @@ package msgconv
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
+	"maunium.net/go/mautrix/id"
 )
 
 func (mc *MessageConverter) ToMeshtastic(ctx context.Context, evt *event.Event, content *event.MessageEventContent) (string, error) {
@@ -32,16 +32,20 @@ func (mc *MessageConverter) convertPill(displayname, mxid, eventID string, ctx f
 		}
 		return format.DefaultPillConverter(displayname, mxid, eventID, ctx)
 	}
+	idUser := id.UserID(mxid)
 
-	var node meshid.NodeID
-
-	if nodeInfo, err := mc.MeshDB.MeshNodeInfo.GetByNodeID(ctx.Ctx, node); err != nil {
-		mc.Bridge.Log.Err(err).Msg("Unable to query node info")
-	} else if nodeInfo != nil {
-		return fmt.Sprintf("@%s", nodeInfo.ShortName)
+	nodeID := meshid.MXIDToNodeID(idUser)
+	if gid, ok := mc.Bridge.Matrix.ParseGhostMXID(idUser); ok {
+		nodeID, _ = meshid.ParseUserID(gid)
 	}
 
-	nodeStr := node.String()
+	//if nodeInfo, err := mc.MeshDB.MeshNodeInfo.GetByNodeID(ctx.Ctx, nodeID); err != nil {
+	//	mc.Bridge.Log.Err(err).Msg("Unable to query node info")
+	//} else if nodeInfo != nil {
+	//	return fmt.Sprintf("@%s", nodeInfo.ShortName)
+	//}
+
+	nodeStr := nodeID.String()
 	shortName := nodeStr[len(nodeStr)-4:]
-	return fmt.Sprintf("@%s", shortName)
+	return shortName
 }
