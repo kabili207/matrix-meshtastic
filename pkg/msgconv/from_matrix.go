@@ -39,12 +39,6 @@ func (mc *MessageConverter) convertPill(displayname, mxid, eventID string, ctx f
 		nodeID, _ = meshid.ParseUserID(gid)
 	}
 
-	//if nodeInfo, err := mc.MeshDB.MeshNodeInfo.GetByNodeID(ctx.Ctx, nodeID); err != nil {
-	//	mc.Bridge.Log.Err(err).Msg("Unable to query node info")
-	//} else if nodeInfo != nil {
-	//	return fmt.Sprintf("@%s", nodeInfo.ShortName)
-	//}
-
 	nodeStr := nodeID.String()
 	shortName := nodeStr[len(nodeStr)-4:]
 	return shortName

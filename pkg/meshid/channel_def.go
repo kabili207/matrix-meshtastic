@@ -1,7 +1,11 @@
 package meshid
 
 import (
+	"bytes"
+	"encoding/base64"
+
 	"github.com/meshnet-gophers/meshtastic-go/radio"
+	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 )
 
@@ -30,9 +34,25 @@ func NewChannelDef(name string, publicKey *string) (ChannelDef, error) {
 	}
 	return &channelDefImpl{
 		name:     name,
-		key:      publicKey,
+		key:      tryCompactKey(keyBytes),
 		keyBytes: keyBytes,
 	}, nil
+}
+
+func tryCompactKey(keyBytes []byte) *string {
+	kbLen := len(keyBytes)
+	dkLen := len(radio.DefaultKey)
+
+	if kbLen == 0 {
+		return nil
+	}
+
+	encoded := keyBytes
+	if kbLen == dkLen && bytes.Equal(keyBytes[:kbLen-1], radio.DefaultKey[:dkLen-1]) {
+		encoded = keyBytes[kbLen-1:]
+	}
+
+	return ptr.Ptr(base64.StdEncoding.EncodeToString(encoded))
 }
 
 // ExpandShortPSK converts a short-form PSK into a full-length PSK derived from the defaultPSK.

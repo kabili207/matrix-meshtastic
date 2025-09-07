@@ -213,7 +213,17 @@ func (c *MeshtasticConnector) onMeshConnected(isReconnect bool) {
 		portals, _ := c.bridge.GetAllPortalsWithMXID(ctx)
 		for _, p := range portals {
 			if channelID, channelKey, err := meshid.ParsePortalID(p.ID); err == nil {
-				c.meshClient.AddChannel(channelID, channelKey)
+				chanDef, _ := meshid.NewChannelDef(channelID, &channelKey)
+				if chanDef.GetKeyString() != channelKey {
+					newID := meshid.MakePortalID(channelID, ptr.Ptr(chanDef.GetKeyString()))
+					newKey := p.PortalKey
+					newKey.ID = newID
+					_, _, err := c.bridge.ReIDPortal(ctx, p.PortalKey, newKey)
+					if err != nil {
+						c.log.Err(err).Msg("Error re-keying portal")
+					}
+				}
+				c.meshClient.AddChannelDef(chanDef)
 			}
 		}
 	}
