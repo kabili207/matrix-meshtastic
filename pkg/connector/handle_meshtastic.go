@@ -186,9 +186,13 @@ func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *brid
 
 			ghostMXID := ghost.Intent.GetMXID()
 			userTag := ghostMXID.String()
+			userDisplay := userTag
+			if ni.LongName != "" {
+				userDisplay = fmt.Sprintf("@%s", ni.LongName)
+			}
 
 			mess = strings.Replace(mess, m[0], userTag, 1)
-			formatted = strings.Replace(data.Message, m[0], fmt.Sprintf(`<a href="%s">%s</a>`, ghostMXID.URI().MatrixToURL(), html.EscapeString(userTag)), 1)
+			formatted = strings.Replace(data.Message, m[0], fmt.Sprintf(`<a href="%s">%s</a>`, ghostMXID.URI().MatrixToURL(), html.EscapeString(userDisplay)), 1)
 			mentions.UserIDs = append(mentions.UserIDs, ghostMXID)
 		}
 	}
