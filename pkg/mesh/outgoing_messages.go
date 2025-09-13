@@ -186,10 +186,7 @@ func (c *MeshtasticClient) SendNeighborInfo(from meshid.NodeID, neighborIDs []me
 			neighbors = append(neighbors, &pb.Neighbor{NodeId: uint32(id), Snr: 0})
 		}
 	}
-	//sort.Slice(applicants, func(i, j int) bool {
-	//    return applicants[i].GPA > applicants[j].GPA
-	//})
-	// TODO: Cap to the most recently seen instead of the first 10 in the list
+
 	if len(neighbors) > MAX_NEIGHBOR_LEN {
 		neighbors = neighbors[:MAX_NEIGHBOR_LEN]
 	}

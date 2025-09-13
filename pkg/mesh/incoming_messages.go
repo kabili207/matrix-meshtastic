@@ -186,7 +186,8 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 		Timestamp:    packet.RxTime,
 		WantAck:      packet.WantAck,
 		WantResponse: message.WantResponse,
-		IsNeighbor:   packet.Source != connectors.PacketSourceMQTT && packet.HopStart == packet.HopLimit,
+		IsNeighbor: packet.Source != connectors.PacketSourceMQTT &&
+			packet.HopStart == packet.HopLimit && !packet.ViaMqtt,
 	}
 
 	if meshEventEnv.Timestamp == 0 {

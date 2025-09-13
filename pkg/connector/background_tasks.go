@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"math/rand/v2"
+	"sort"
 	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/connector/meshdb"
@@ -84,16 +85,23 @@ func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 		return
 	}
 
+	sort.Slice(directNeighbors, func(i, j int) bool {
+		return directNeighbors[i].LastSeen.After(*directNeighbors[j].LastSeen)
+	})
+
 	nodeIDs := []meshid.NodeID{c.GetBaseNodeID()}
 	maxAge := time.Now().UTC().Add(-2 * rateNeighborInfo)
 
 	for _, g := range directNeighbors {
-		if g.LastSeen != nil && g.LastSeen.After(maxAge) {
+		if g.LastSeen.After(maxAge) {
 			nodeIDs = append(nodeIDs, g.NodeID)
+		} else {
+			break
 		}
 	}
+
 	if err := c.meshClient.SendNeighborInfo(c.GetBaseNodeID(), nodeIDs, uint32(rateNeighborInfo.Seconds())); err != nil {
-		c.log.Err(err).Msg("Failed to send perioid neighbor info")
+		c.log.Err(err).Msg("Failed to send periodic neighbor info")
 	}
 }
 

@@ -18,7 +18,7 @@ const (
 	getMeshNodeInfoByUserIDQuery      = getMeshNodeInfoSelect + "WHERE user_id=$1"
 	getMeshNodeInfoByShortUserIDQuery = getMeshNodeInfoSelect + "WHERE user_id LIKE $1"
 	getMeshNodeInfoIsManagedQuery     = getMeshNodeInfoSelect + "WHERE is_managed=true"
-	getMeshNodeInfoNeighborsQuery     = getMeshNodeInfoSelect + "WHERE is_direct=true"
+	getMeshNodeInfoNeighborsQuery     = getMeshNodeInfoSelect + "WHERE is_direct=true AND last_seen IS NOT NULL"
 
 	setMeshNodeInfoNamesQuery = "UPDATE mesh_node_info SET long_name=$1, short_name=$2 WHERE id = $3"
 
