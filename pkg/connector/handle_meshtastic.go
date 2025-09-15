@@ -18,6 +18,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 )
 
 var (
@@ -170,31 +171,67 @@ func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *brid
 	mess := data.Message
 	formatted := ""
 	mentions := &event.Mentions{}
+	seenUsers := make(map[id.UserID]struct{})
 
-	// TODO: Problems will arise if a node is tagged multiple times
-	// Switch to index version and carefully step through the message
-	matches := shortUserRegex.FindAllStringSubmatch(mess, -1)
-	for _, m := range matches {
-		potential := m[1]
-		if ni, _ := c.main.meshDB.MeshNodeInfo.GetByShortUserID(ctx, potential); ni != nil {
-			nodeUserID := meshid.MakeUserID(ni.NodeID)
-			ghost, err := c.main.getRemoteGhost(ctx, nodeUserID, true)
-			if err != nil {
-				c.log.Err(err).Msg("unable to fetch remote node info")
-				continue
+	matches := shortUserRegex.FindAllStringSubmatchIndex(mess, -1)
+	if matches != nil {
+		var bodyBuilder, formattedBuilder strings.Builder
+		lastIndex := 0
+
+		for _, match := range matches {
+			start, end := match[0], match[1]         // full match
+			userStart, userEnd := match[2], match[3] // capture group
+
+			bodyBuilder.WriteString(mess[lastIndex:start])
+			formattedBuilder.WriteString(data.Message[lastIndex:start])
+
+			potential := mess[userStart:userEnd]
+			if ni, _ := c.main.meshDB.MeshNodeInfo.GetByShortUserID(ctx, potential); ni != nil {
+				nodeUserID := meshid.MakeUserID(ni.NodeID)
+				ghost, err := c.main.getRemoteGhost(ctx, nodeUserID, true)
+				if err != nil {
+					c.log.Err(err).Msg("unable to fetch remote node info")
+					bodyBuilder.WriteString(mess[start:end])
+					formattedBuilder.WriteString(data.Message[start:end])
+					lastIndex = end
+					continue
+				}
+
+				ghostMXID := ghost.Intent.GetMXID()
+				if gm, ok := ghost.Metadata.(*meshid.GhostMetadata); ok && gm.UserMXID != "" {
+					ghostMXID = gm.UserMXID
+				}
+				userTag := ghostMXID.String()
+				userDisplay := userTag
+				if ni.LongName != "" {
+					userDisplay = fmt.Sprintf("@%s", ni.LongName)
+				}
+
+				bodyBuilder.WriteString(userTag)
+				formattedBuilder.WriteString(fmt.Sprintf(
+					`<a href="%s">%s</a>`,
+					ghostMXID.URI().MatrixToURL(),
+					html.EscapeString(userDisplay),
+				))
+
+				if _, seen := seenUsers[ghostMXID]; !seen {
+					seenUsers[ghostMXID] = struct{}{}
+					mentions.UserIDs = append(mentions.UserIDs, ghostMXID)
+				}
+			} else {
+				bodyBuilder.WriteString(mess[start:end])
+				formattedBuilder.WriteString(data.Message[start:end])
 			}
 
-			ghostMXID := ghost.Intent.GetMXID()
-			userTag := ghostMXID.String()
-			userDisplay := userTag
-			if ni.LongName != "" {
-				userDisplay = fmt.Sprintf("@%s", ni.LongName)
-			}
-
-			mess = strings.Replace(mess, m[0], userTag, 1)
-			formatted = strings.Replace(data.Message, m[0], fmt.Sprintf(`<a href="%s">%s</a>`, ghostMXID.URI().MatrixToURL(), html.EscapeString(userDisplay)), 1)
-			mentions.UserIDs = append(mentions.UserIDs, ghostMXID)
+			lastIndex = end
 		}
+
+		// copy the remainder
+		bodyBuilder.WriteString(mess[lastIndex:])
+		formattedBuilder.WriteString(data.Message[lastIndex:])
+
+		mess = bodyBuilder.String()
+		formatted = formattedBuilder.String()
 	}
 
 	if strings.Contains(mess, mesh.BellCharacter) {

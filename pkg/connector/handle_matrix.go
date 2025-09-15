@@ -213,9 +213,8 @@ func (c *MeshtasticConnector) updateGhostSenderID(mxid id.UserID) func(context.C
 		default:
 			ghost.Metadata = meta
 		}
-		newId := mxid.String()
-		forceSave := newId != meta.UserMXID
-		meta.UserMXID = newId
+		forceSave := mxid != meta.UserMXID
+		meta.UserMXID = mxid
 		return forceSave
 	}
 }
