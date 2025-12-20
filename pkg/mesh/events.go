@@ -79,3 +79,12 @@ type MeshMapReportEvent struct {
 	FirmwareVersion    string
 	OnlineLocalNodes   uint32
 }
+
+type MeshTracerouteEvent struct {
+	MeshEvent
+	Route      []uint32
+	SnrTowards []int32
+	RouteBack  []uint32
+	SnrBack    []int32
+	RequestId  uint32
+}

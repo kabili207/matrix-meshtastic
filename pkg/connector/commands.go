@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"maunium.net/go/mautrix/bridgev2/commands"
@@ -47,6 +48,18 @@ var cmdNodeInfo = &commands.FullHandler{
 		Section:     HelpSectionNode,
 		Description: "Displays info about a Meshtastic node",
 		Args:        "[_node ID_]",
+	},
+	RequiresLogin:  false,
+	RequiresPortal: false,
+}
+
+var cmdTraceroute = &commands.FullHandler{
+	Func: fnTraceroute,
+	Name: "traceroute",
+	Help: commands.HelpMeta{
+		Section:     HelpSectionNode,
+		Description: "Sends a traceroute request to a Meshtastic node",
+		Args:        "<_node ID_>",
 	},
 	RequiresLogin:  false,
 	RequiresPortal: false,
@@ -168,4 +181,96 @@ func fnNodeInfo(ce *commands.Event) {
 		ce.Reply("**Node ID:** %s\n**Long Name:** %s\n**Short Name:** %s\n**Public Key:** %s", nodeID, longName, shortName, pubKey)
 	}
 
+}
+
+func fnTraceroute(ce *commands.Event) {
+	if len(ce.Args) < 1 {
+		ce.Reply("**Usage:** `$cmdprefix traceroute <node_id>`")
+		return
+	}
+
+	userMXID := ce.User.MXID
+	fromNode := meshid.MXIDToNodeID(userMXID)
+
+	// Parse the target node ID (same format as info command)
+	var targetNode meshid.NodeID
+	isMeshNode := false
+
+	if parsedID, err := meshid.ParseNodeID(ce.Args[0]); err == nil {
+		targetNode = parsedID
+		isMeshNode = true
+	} else {
+		// Try parsing as a Matrix user ID
+		mtxID := id.UserID(ce.Args[0])
+		if _, _, err := mtxID.ParseAndValidate(); err == nil {
+			if gid, ok := ce.Bridge.Matrix.ParseGhostMXID(mtxID); ok {
+				if nodeID, err := meshid.ParseUserID(gid); err == nil {
+					targetNode = nodeID
+					isMeshNode = true
+				}
+			}
+		}
+	}
+
+	if !isMeshNode || targetNode == 0 {
+		ce.Reply("Invalid node ID: %s", ce.Args[0])
+		return
+	}
+
+	conn, ok := ce.Bridge.Network.(*MeshtasticConnector)
+	if !ok {
+		ce.Log.Error().Msg("Unable to cast Meshtastic connector")
+		ce.Reply("Failed to get Meshtastic connector")
+		return
+	}
+
+	// Check rate limit
+	canSend, waitTime := conn.tracerouteTracker.CanSendTraceroute(fromNode, targetNode)
+	if !canSend {
+		ce.Reply("Please wait %d seconds before sending another traceroute to this node", int(waitTime.Seconds()))
+		return
+	}
+
+	// Get the channel - use the portal's channel if in a portal, otherwise use the primary channel
+	var channel meshid.ChannelDef
+	portal := ce.Portal
+	if portal != nil {
+		channelID, channelKey, err := meshid.ParsePortalID(portal.ID)
+		if err != nil {
+			ce.Reply("Failed to get channel info: %v", err)
+			return
+		}
+		channel, err = meshid.NewChannelDef(channelID, &channelKey)
+		if err != nil {
+			ce.Reply("Failed to create channel definition: %v", err)
+			return
+		}
+	} else {
+		channel = conn.meshClient.GetPrimaryChannel()
+		if channel == nil {
+			ce.Reply("No primary channel configured")
+			return
+		}
+	}
+
+	// Send the traceroute request
+	packetID, err := conn.meshClient.SendTraceroute(fromNode, targetNode, channel)
+	if err != nil {
+		ce.Log.Err(err).Msg("Failed to send traceroute")
+		ce.Reply("Failed to send traceroute: %v", err)
+		return
+	}
+
+	// Track the request so we can route the response back to this room
+	req := &TracerouteRequest{
+		PacketID:   packetID,
+		FromNode:   fromNode,
+		TargetNode: targetNode,
+		RoomID:     ce.RoomID,
+		Timestamp:  time.Now(),
+		Channel:    channel,
+	}
+	conn.tracerouteTracker.AddRequest(req)
+
+	ce.Reply("Traceroute request sent to %s. Waiting for response...", targetNode)
 }

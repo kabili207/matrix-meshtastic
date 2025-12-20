@@ -276,7 +276,25 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 		var r = pb.RouteDiscovery{}
 		err = proto.Unmarshal(message.Payload, &r)
 		c.printPacketDetails(packet, &r)
-		c.handleTraceroute(packet, &r)
+
+		// Check if this is a response (has RequestId) or a request (no RequestId)
+		if message.RequestId != 0 {
+			// This is a traceroute response - process the return route before creating event
+			// isTowardsDestination=false because the packet is returning to us (the originator)
+			c.processTracerouteRoute(packet, &r, false)
+
+			evt = &MeshTracerouteEvent{
+				MeshEvent:  meshEventEnv,
+				Route:      r.Route,
+				SnrTowards: r.SnrTowards,
+				RouteBack:  r.RouteBack,
+				SnrBack:    r.SnrBack,
+				RequestId:  message.RequestId,
+			}
+		} else {
+			// This is an incoming traceroute request - handle it
+			c.handleTraceroute(packet, &r)
+		}
 
 	case pb.PortNum_TELEMETRY_APP:
 		var t = pb.Telemetry{}

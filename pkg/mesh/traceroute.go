@@ -23,26 +23,8 @@ func (c *MeshtasticClient) handleTraceroute(packet connectors.NetworkMeshPacket,
 		c.SendAck(toNode, fromNode, packet.Id)
 	}
 
-	// We never process packets that *aren't* to us, so this is always be true,
-	// In the firmware, this would check if message.RequestId == 0
-	isTowardsDestination := true
-
-	c.insertUnknownHops(packet.MeshPacket, disco, isTowardsDestination)
-
-	// Gateway node isn't always included in the route list, so ensure we add it
-	if packet.GatewayNode != 0 && packet.GatewayNode != fromNode && !slices.Contains(disco.Route, uint32(packet.GatewayNode)) {
-		disco.Route = append(disco.RouteBack, uint32(packet.GatewayNode))
-		disco.SnrTowards = append(disco.SnrBack, int32(packet.RxSnr*4))
-	}
-
-	// Add forward and backward info if dest is not the bridge itself
-	if toNode != c.nodeId {
-		packet.HopLimit -= 1
-		c.appendMyIdAndSnr(disco, isTowardsDestination, false)
-		c.appendMyIdAndSnr(disco, !isTowardsDestination, false)
-	}
-
-	c.appendMyIdAndSnr(disco, isTowardsDestination, true)
+	// Process the route for an incoming request (packet is traveling towards us)
+	c.processTracerouteRoute(packet, disco, true)
 
 	c.logRoute(disco, packet.From, packet.To)
 
@@ -54,6 +36,40 @@ func (c *MeshtasticClient) handleTraceroute(packet connectors.NetworkMeshPacket,
 		To:        fromNode,
 		RequestId: packet.Id,
 	})
+}
+
+// processTracerouteRoute processes route information for traceroute packets.
+// isTowardsDestination should be true for incoming requests (packet traveling to us)
+// and false for incoming responses (packet returning to us as the originator).
+func (c *MeshtasticClient) processTracerouteRoute(packet connectors.NetworkMeshPacket, disco *pb.RouteDiscovery, isTowardsDestination bool) {
+	toNode := meshid.NodeID(packet.To)
+	fromNode := meshid.NodeID(packet.From)
+
+	c.insertUnknownHops(packet.MeshPacket, disco, isTowardsDestination)
+
+	// Gateway node isn't always included in the route list, so ensure we add it
+	if packet.GatewayNode != 0 && packet.GatewayNode != fromNode {
+		if isTowardsDestination {
+			if !slices.Contains(disco.Route, uint32(packet.GatewayNode)) {
+				disco.Route = append(disco.Route, uint32(packet.GatewayNode))
+				disco.SnrTowards = append(disco.SnrTowards, int32(packet.RxSnr*4))
+			}
+		} else {
+			if !slices.Contains(disco.RouteBack, uint32(packet.GatewayNode)) {
+				disco.RouteBack = append(disco.RouteBack, uint32(packet.GatewayNode))
+				disco.SnrBack = append(disco.SnrBack, int32(packet.RxSnr*4))
+			}
+		}
+	}
+
+	// Add forward and backward info if dest is not the bridge itself
+	if toNode != c.nodeId {
+		packet.HopLimit -= 1
+		c.appendMyIdAndSnr(disco, isTowardsDestination, false)
+		c.appendMyIdAndSnr(disco, !isTowardsDestination, false)
+	}
+
+	c.appendMyIdAndSnr(disco, isTowardsDestination, true)
 }
 
 func (c *MeshtasticClient) insertUnknownHops(packet *pb.MeshPacket, disco *pb.RouteDiscovery, isTowardsDestination bool) {

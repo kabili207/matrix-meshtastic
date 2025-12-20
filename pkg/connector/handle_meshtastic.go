@@ -37,6 +37,8 @@ func (c *MeshtasticConnector) handleGlobalMeshEvent(rawEvt any) {
 		c.handleMeshLocation(evt)
 	case *mesh.MeshWaypointEvent:
 		c.handleMeshWaypoint(evt)
+	case *mesh.MeshTracerouteEvent:
+		c.handleMeshTraceroute(evt)
 	case *mesh.MeshEvent:
 		c.handleUnknownPacket(evt)
 	}
