@@ -50,6 +50,9 @@ func (c *MeshtasticConnector) Init(bridge *bridgev2.Bridge) {
 	if c.managedNodeCache == nil {
 		c.managedNodeCache = map[meshid.NodeID]bool{}
 	}
+	if c.tracerouteTracker == nil {
+		c.tracerouteTracker = NewTracerouteTracker()
+	}
 
 	c.bridge.Commands.(*commands.Processor).AddHandlers(cmdJoinChannel, cmdUpdateNames, cmdNodeInfo, cmdTraceroute)
 
