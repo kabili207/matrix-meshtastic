@@ -62,7 +62,7 @@ var cmdTraceroute = &commands.FullHandler{
 		Args:        "<_node ID_>",
 	},
 	RequiresLogin:  false,
-	RequiresPortal: true,
+	RequiresPortal: false,
 }
 
 func fnJoinChannel(ce *commands.Event) {
@@ -231,23 +231,26 @@ func fnTraceroute(ce *commands.Event) {
 		return
 	}
 
-	// Get the channel for this portal
+	// Get the channel - use the portal's channel if in a portal, otherwise use the primary channel
+	var channel meshid.ChannelDef
 	portal := ce.Portal
-	if portal == nil {
-		ce.Reply("This command must be run in a Meshtastic channel")
-		return
-	}
-
-	channelID, channelKey, err := meshid.ParsePortalID(portal.ID)
-	if err != nil {
-		ce.Reply("Failed to get channel info: %v", err)
-		return
-	}
-
-	channel, err := meshid.NewChannelDef(channelID, &channelKey)
-	if err != nil {
-		ce.Reply("Failed to create channel definition: %v", err)
-		return
+	if portal != nil {
+		channelID, channelKey, err := meshid.ParsePortalID(portal.ID)
+		if err != nil {
+			ce.Reply("Failed to get channel info: %v", err)
+			return
+		}
+		channel, err = meshid.NewChannelDef(channelID, &channelKey)
+		if err != nil {
+			ce.Reply("Failed to create channel definition: %v", err)
+			return
+		}
+	} else {
+		channel = conn.meshClient.GetPrimaryChannel()
+		if channel == nil {
+			ce.Reply("No primary channel configured")
+			return
+		}
 	}
 
 	// Send the traceroute request
@@ -263,7 +266,7 @@ func fnTraceroute(ce *commands.Event) {
 		PacketID:   packetID,
 		FromNode:   fromNode,
 		TargetNode: targetNode,
-		RoomID:     portal.MXID,
+		RoomID:     ce.RoomID,
 		Timestamp:  time.Now(),
 		Channel:    channel,
 	}
