@@ -388,3 +388,22 @@ func (c *MeshtasticClient) SendNack(from, to meshid.NodeID, packetId uint32) (ui
 		RequestId: packetId,
 	})
 }
+
+// SendTraceroute sends a traceroute request to the target node and returns the packet ID
+func (c *MeshtasticClient) SendTraceroute(from, to meshid.NodeID, channel meshid.ChannelDef) (uint32, error) {
+	c.log.Debug().
+		Stringer("from", from).
+		Stringer("to", to).
+		Msg("Sending traceroute request")
+
+	// Send an empty RouteDiscovery message - the route info gets filled in by nodes along the way
+	disco := pb.RouteDiscovery{}
+
+	return c.sendProtoMessage(channel, &disco, PacketInfo{
+		PortNum:      pb.PortNum_TRACEROUTE_APP,
+		Encrypted:    PSKEncryption,
+		From:         from,
+		To:           to,
+		WantResponse: true,
+	})
+}

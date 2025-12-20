@@ -28,6 +28,7 @@ type MeshtasticConnector struct {
 	MsgConv          *msgconv.MessageConverter
 	managedNodeCache map[meshid.NodeID]bool
 	bgTaskCanceller  context.CancelFunc
+	tracerouteTracker *TracerouteTracker
 }
 
 var _ bridgev2.NetworkConnector = (*MeshtasticConnector)(nil)
@@ -35,8 +36,9 @@ var _ bridgev2.NetworkConnector = (*MeshtasticConnector)(nil)
 // NewMeshtasticConnector creates a new instance of MeshtasticConnector
 func NewMeshtasticConnector(log zerolog.Logger) *MeshtasticConnector {
 	return &MeshtasticConnector{
-		log:              log.With().Str("component", "network-connector").Logger(),
-		managedNodeCache: map[meshid.NodeID]bool{},
+		log:               log.With().Str("component", "network-connector").Logger(),
+		managedNodeCache:  map[meshid.NodeID]bool{},
+		tracerouteTracker: NewTracerouteTracker(),
 	}
 }
 
@@ -49,7 +51,7 @@ func (c *MeshtasticConnector) Init(bridge *bridgev2.Bridge) {
 		c.managedNodeCache = map[meshid.NodeID]bool{}
 	}
 
-	c.bridge.Commands.(*commands.Processor).AddHandlers(cmdJoinChannel, cmdUpdateNames, cmdNodeInfo)
+	c.bridge.Commands.(*commands.Processor).AddHandlers(cmdJoinChannel, cmdUpdateNames, cmdNodeInfo, cmdTraceroute)
 
 	slogger := slog.New(slogzerolog.Option{Level: slog.LevelInfo, Logger: &c.log}.NewZerologHandler())
 	slog.SetDefault(slogger)
