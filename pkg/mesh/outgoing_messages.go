@@ -396,8 +396,15 @@ func (c *MeshtasticClient) SendTraceroute(from, to meshid.NodeID, channel meshid
 		Stringer("to", to).
 		Msg("Sending traceroute request")
 
-	// Send an empty RouteDiscovery message - the route info gets filled in by nodes along the way
+	// The route info gets filled in by nodes along the way.
+	// If we're sending on behalf of another node (from != c.nodeId), we need to
+	// include the client's node ID in the route since that's where the packet
+	// actually originates from on the mesh network.
 	disco := pb.RouteDiscovery{}
+	if from != c.nodeId {
+		disco.Route = []uint32{uint32(c.nodeId)}
+		disco.SnrTowards = []int32{0}
+	}
 
 	return c.sendProtoMessage(channel, &disco, PacketInfo{
 		PortNum:      pb.PortNum_TRACEROUTE_APP,

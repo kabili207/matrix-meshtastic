@@ -54,8 +54,9 @@ var cmdNodeInfo = &commands.FullHandler{
 }
 
 var cmdTraceroute = &commands.FullHandler{
-	Func: fnTraceroute,
-	Name: "traceroute",
+	Func:    fnTraceroute,
+	Name:    "traceroute",
+	Aliases: []string{"tr", "trace"},
 	Help: commands.HelpMeta{
 		Section:     HelpSectionNode,
 		Description: "Sends a traceroute request to a Meshtastic node",
