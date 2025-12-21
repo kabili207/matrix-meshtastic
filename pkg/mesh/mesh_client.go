@@ -375,8 +375,8 @@ func (c *MeshtasticClient) sendBytes(channel meshid.ChannelDef, rawInfo []byte, 
 		data.Bitfield = ptr.Ptr(*data.Bitfield | uint32(BITFIELD_WantResponse))
 	}
 
-	// TODO: Figure out the appropriate situations where we *do* want an ACK
-	wantAck := false
+	// Traceroute requires WantAck to trigger firmware response handling
+	wantAck := info.PortNum == pb.PortNum_TRACEROUTE_APP && info.WantResponse
 
 	now := time.Now()
 	msgTime := uint32(now.Unix())
