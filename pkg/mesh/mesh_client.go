@@ -370,13 +370,13 @@ func (c *MeshtasticClient) sendBytes(channel meshid.ChannelDef, rawInfo []byte, 
 		Emoji:     uint32(emojiVal),
 	}
 
-	if info.WantResponse && info.To != meshid.BROADCAST_ID && (info.PortNum == pb.PortNum_NODEINFO_APP || info.PortNum == pb.PortNum_POSITION_APP) {
+	if info.WantResponse && info.To != meshid.BROADCAST_ID && (info.PortNum == pb.PortNum_NODEINFO_APP || info.PortNum == pb.PortNum_POSITION_APP || info.PortNum == pb.PortNum_TRACEROUTE_APP) {
 		data.WantResponse = true
 		data.Bitfield = ptr.Ptr(*data.Bitfield | uint32(BITFIELD_WantResponse))
 	}
 
-	// TODO: Figure out the appropriate situations where we *do* want an ACK
-	wantAck := false
+	// Traceroute requires WantAck to trigger firmware response handling
+	wantAck := info.PortNum == pb.PortNum_TRACEROUTE_APP && info.WantResponse
 
 	now := time.Now()
 	msgTime := uint32(now.Unix())
