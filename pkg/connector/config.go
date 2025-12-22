@@ -12,12 +12,13 @@ import (
 var ExampleConfig string
 
 type Config struct {
-	LongName       string        `yaml:"long_name"`
-	ShortName      string        `yaml:"short_name"`
-	HopLimit       uint32        `yaml:"hop_limit"`
-	PrimaryChannel ChannelConfig `yaml:"primary_channel"`
-	UDP            bool          `yaml:"udp"`
-	Mqtt           MqttConfig    `yaml:"mqtt"`
+	LongName            string        `yaml:"long_name"`
+	ShortName           string        `yaml:"short_name"`
+	HopLimit            uint32        `yaml:"hop_limit"`
+	PrimaryChannel      ChannelConfig `yaml:"primary_channel"`
+	UDP                 bool          `yaml:"udp"`
+	Mqtt                MqttConfig    `yaml:"mqtt"`
+	InactivityThreshold int           `yaml:"inactivity_threshold_days"`
 }
 
 type MqttConfig struct {
@@ -45,6 +46,7 @@ func upgradeConfig(helper configupgrade.Helper) {
 	helper.Copy(configupgrade.Str, "mqtt", "username")
 	helper.Copy(configupgrade.Str, "mqtt", "password")
 	helper.Copy(configupgrade.Str, "mqtt", "root_topic")
+	helper.Copy(configupgrade.Int, "inactivity_threshold_days")
 }
 
 func (mc *MeshtasticConnector) GetConfig() (example string, data any, upgrader configupgrade.Upgrader) {

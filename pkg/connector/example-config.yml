@@ -29,3 +29,8 @@ mqtt:
   username: example
   password: example
   root_topic: msh/US
+
+# Number of days of inactivity before removing a remote node from channel portals.
+# Set to 0 to disable automatic cleanup.
+# Does not affect managed nodes (Matrix users bridged to Meshtastic).
+inactivity_threshold_days: 90

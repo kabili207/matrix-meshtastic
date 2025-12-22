@@ -236,4 +236,5 @@ func (c *MeshtasticConnector) onMeshConnected(isReconnect bool) {
 	bgContext, cancelFunc := context.WithCancel(ctx)
 	c.bgTaskCanceller = cancelFunc
 	c.RunNodeInfoTask(bgContext)
+	c.RunInactiveCleanupTask(bgContext)
 }
