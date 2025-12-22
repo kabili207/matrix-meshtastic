@@ -11,6 +11,7 @@ import (
 	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -33,9 +34,9 @@ type TracerouteRequest struct {
 
 // TracerouteTracker manages pending traceroute requests and rate limiting
 type TracerouteTracker struct {
-	mu               sync.Mutex
-	pendingRequests  map[uint32]*TracerouteRequest           // keyed by packet ID
-	lastTraceroute   map[tracerouteKey]time.Time             // rate limiting per from-to pair
+	mu              sync.Mutex
+	pendingRequests map[uint32]*TracerouteRequest // keyed by packet ID
+	lastTraceroute  map[tracerouteKey]time.Time   // rate limiting per from-to pair
 }
 
 // tracerouteKey is used to track rate limits per source-destination pair
@@ -146,7 +147,7 @@ func (c *MeshtasticConnector) formatTracerouteResponse(evt *mesh.MeshTracerouteE
 
 	// Format forward route
 	sb.WriteString("**Route:**\n")
-	sb.WriteString(fmt.Sprintf("  %s (origin)\n", req.FromNode))
+	sb.WriteString(fmt.Sprintf("&nbsp;&nbsp;%s\n", c.getNodeDisplayName(req.FromNode)))
 
 	for i, nodeID := range evt.Route {
 		node := meshid.NodeID(nodeID)
@@ -155,7 +156,7 @@ func (c *MeshtasticConnector) formatTracerouteResponse(evt *mesh.MeshTracerouteE
 			snrStr = fmt.Sprintf("%.2f", float32(evt.SnrTowards[i])/4)
 		}
 		nodeName := c.getNodeDisplayName(node)
-		sb.WriteString(fmt.Sprintf("  → %s (%s dB)\n", nodeName, snrStr))
+		sb.WriteString(fmt.Sprintf("&nbsp;&nbsp;&nbsp↓ %s dB\n&nbsp;&nbsp;%s\n", snrStr, nodeName))
 	}
 
 	// Final hop SNR (received at destination)
@@ -166,12 +167,12 @@ func (c *MeshtasticConnector) formatTracerouteResponse(evt *mesh.MeshTracerouteE
 			destSnrStr = fmt.Sprintf("%.2f", float32(lastSnr)/4)
 		}
 	}
-	sb.WriteString(fmt.Sprintf("  → %s (destination, %s dB)\n", c.getNodeDisplayName(req.TargetNode), destSnrStr))
+	sb.WriteString(fmt.Sprintf("&nbsp;&nbsp;&nbsp;↓ %s dB\n&nbsp;&nbsp;%s\n", destSnrStr, c.getNodeDisplayName(req.TargetNode)))
 
 	// Format return route if available
 	if len(evt.RouteBack) > 0 {
 		sb.WriteString("\n**Return Route:**\n")
-		sb.WriteString(fmt.Sprintf("  %s (origin)\n", c.getNodeDisplayName(req.TargetNode)))
+		sb.WriteString(fmt.Sprintf("&nbsp;&nbsp;%s\n", c.getNodeDisplayName(req.TargetNode)))
 
 		for i, nodeID := range evt.RouteBack {
 			node := meshid.NodeID(nodeID)
@@ -180,7 +181,7 @@ func (c *MeshtasticConnector) formatTracerouteResponse(evt *mesh.MeshTracerouteE
 				snrStr = fmt.Sprintf("%.2f", float32(evt.SnrBack[i])/4)
 			}
 			nodeName := c.getNodeDisplayName(node)
-			sb.WriteString(fmt.Sprintf("  → %s (%s dB)\n", nodeName, snrStr))
+			sb.WriteString(fmt.Sprintf("&nbsp;&nbsp;&nbsp;↓ %s dB\n&nbsp;&nbsp;%s\n", snrStr, nodeName))
 		}
 
 		// Final hop SNR for return
@@ -191,7 +192,7 @@ func (c *MeshtasticConnector) formatTracerouteResponse(evt *mesh.MeshTracerouteE
 				returnSnrStr = fmt.Sprintf("%.2f", float32(lastSnr)/4)
 			}
 		}
-		sb.WriteString(fmt.Sprintf("  → %s (destination, %s dB)\n", req.FromNode, returnSnrStr))
+		sb.WriteString(fmt.Sprintf("&nbsp;&nbsp;&nbsp;↓ %s dB\n&nbsp;&nbsp;%s\n", returnSnrStr, c.getNodeDisplayName(req.FromNode)))
 	}
 
 	return sb.String()
@@ -201,19 +202,34 @@ func (c *MeshtasticConnector) formatTracerouteResponse(evt *mesh.MeshTracerouteE
 func (c *MeshtasticConnector) getNodeDisplayName(nodeID meshid.NodeID) string {
 	ctx := context.Background()
 	nodeInfo, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID)
-	if err == nil && nodeInfo != nil && nodeInfo.LongName != "" {
-		return fmt.Sprintf("%s (%s)", nodeInfo.LongName, nodeID)
+	if err != nil {
+		c.log.Debug().
+			Err(err).
+			Stringer("node_id", nodeID).
+			Msg("Failed to get node info for display name")
+		return nodeID.String()
 	}
-	return nodeID.String()
+	if nodeInfo == nil {
+		c.log.Debug().
+			Stringer("node_id", nodeID).
+			Msg("No node info found in database")
+		return nodeID.String()
+	}
+	if nodeInfo.LongName == "" {
+		c.log.Debug().
+			Stringer("node_id", nodeID).
+			Msg("Node info exists but long name is empty")
+		return nodeID.String()
+	}
+	return fmt.Sprintf("%s (%s)", nodeInfo.LongName, nodeInfo.ShortName)
 }
 
 // sendNoticeToRoom sends a notice message to a Matrix room
 func (c *MeshtasticConnector) sendNoticeToRoom(ctx context.Context, roomID id.RoomID, message string) {
+	msg := format.RenderMarkdown(message, true, false)
+	msg.MsgType = event.MsgNotice
 	content := &event.Content{
-		Parsed: &event.MessageEventContent{
-			MsgType: event.MsgNotice,
-			Body:    message,
-		},
+		Parsed: &msg,
 	}
 	_, err := c.bridge.Bot.SendMessage(ctx, roomID, event.EventMessage, content, nil)
 	if err != nil {

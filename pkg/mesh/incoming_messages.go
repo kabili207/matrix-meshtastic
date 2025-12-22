@@ -280,8 +280,7 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 		// Check if this is a response (has RequestId) or a request (no RequestId)
 		if message.RequestId != 0 {
 			// This is a traceroute response - process the return route before creating event
-			// isTowardsDestination=false because the packet is returning to us (the originator)
-			c.processTracerouteRoute(packet, &r, false)
+			c.handleTracerouteResponse(packet, &r)
 
 			evt = &MeshTracerouteEvent{
 				MeshEvent:  meshEventEnv,
@@ -293,7 +292,7 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 			}
 		} else {
 			// This is an incoming traceroute request - handle it
-			c.handleTraceroute(packet, &r)
+			c.handleTracerouteRequest(packet, &r)
 		}
 
 	case pb.PortNum_TELEMETRY_APP:

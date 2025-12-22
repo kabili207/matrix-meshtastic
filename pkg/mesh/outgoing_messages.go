@@ -396,10 +396,10 @@ func (c *MeshtasticClient) SendTraceroute(from, to meshid.NodeID, channel meshid
 		Stringer("to", to).
 		Msg("Sending traceroute request")
 
-	// The route info gets filled in by nodes along the way.
-	// If we're sending on behalf of another node (from != c.nodeId), we need to
-	// include the client's node ID in the route since that's where the packet
-	// actually originates from on the mesh network.
+	// The route info gets filled in by nodes along the way as the packet traverses the mesh.
+	// When sending on behalf of another node (from != c.nodeId), we need to include the
+	// bridge's node ID as the first hop since the bridge is the actual origin point on the mesh.
+	// Intermediate nodes only add themselves when relaying, not when originating.
 	disco := pb.RouteDiscovery{}
 	if from != c.nodeId {
 		disco.Route = []uint32{uint32(c.nodeId)}

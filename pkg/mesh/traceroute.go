@@ -11,10 +11,12 @@ import (
 	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
 )
 
-func (c *MeshtasticClient) handleTraceroute(packet connectors.NetworkMeshPacket, disco *pb.RouteDiscovery) {
-
+// handleTracerouteRequest handles an incoming traceroute request destined for a managed node.
+// It processes the forward route, adds the bridge's contribution, and sends back the response.
+func (c *MeshtasticClient) handleTracerouteRequest(packet connectors.NetworkMeshPacket, disco *pb.RouteDiscovery) {
 	toNode := meshid.NodeID(packet.To)
 	fromNode := meshid.NodeID(packet.From)
+
 	if !c.managedNodeFunc(toNode) {
 		return
 	}
@@ -23,8 +25,22 @@ func (c *MeshtasticClient) handleTraceroute(packet connectors.NetworkMeshPacket,
 		c.SendAck(toNode, fromNode, packet.Id)
 	}
 
-	// Process the route for an incoming request (packet is traveling towards us)
-	c.processTracerouteRoute(packet, disco, true)
+	// Insert placeholder entries for nodes that didn't add themselves to the route
+	// (older firmware or nodes without the channel key)
+	c.insertUnknownHops(packet.MeshPacket, disco, true)
+
+	// Add gateway node to forward route if present and not already included
+	c.addGatewayToRoute(packet, disco, true)
+
+	// If the destination is a managed node but not the bridge itself,
+	// we're relaying on behalf of that node - add bridge to both routes
+	if toNode != c.nodeId {
+		c.addNodeToRouteIfMissing(disco, c.nodeId, 0, true)  // Forward route
+		c.addNodeToRouteIfMissing(disco, c.nodeId, 0, false) // Return route (for the response)
+	}
+
+	// Add final SNR entry for the destination
+	disco.SnrTowards = append(disco.SnrTowards, 0)
 
 	c.logRoute(disco, packet.From, packet.To)
 
@@ -38,128 +54,87 @@ func (c *MeshtasticClient) handleTraceroute(packet connectors.NetworkMeshPacket,
 	})
 }
 
-// processTracerouteRoute processes route information for traceroute packets.
-// isTowardsDestination should be true for incoming requests (packet traveling to us)
-// and false for incoming responses (packet returning to us as the originator).
-func (c *MeshtasticClient) processTracerouteRoute(packet connectors.NetworkMeshPacket, disco *pb.RouteDiscovery, isTowardsDestination bool) {
+// handleTracerouteResponse processes an incoming traceroute response.
+// The response is traveling back to us (the originator of the request).
+func (c *MeshtasticClient) handleTracerouteResponse(packet connectors.NetworkMeshPacket, disco *pb.RouteDiscovery) {
 	toNode := meshid.NodeID(packet.To)
-	fromNode := meshid.NodeID(packet.From)
 
-	c.insertUnknownHops(packet.MeshPacket, disco, isTowardsDestination)
-
-	// Gateway node isn't always included in the route list, so ensure we add it
-	if packet.GatewayNode != 0 && packet.GatewayNode != fromNode {
-		if isTowardsDestination {
-			if !slices.Contains(disco.Route, uint32(packet.GatewayNode)) {
-				disco.Route = append(disco.Route, uint32(packet.GatewayNode))
-				disco.SnrTowards = append(disco.SnrTowards, int32(packet.RxSnr*4))
-			}
-		} else {
-			if !slices.Contains(disco.RouteBack, uint32(packet.GatewayNode)) {
-				disco.RouteBack = append(disco.RouteBack, uint32(packet.GatewayNode))
-				disco.SnrBack = append(disco.SnrBack, int32(packet.RxSnr*4))
-			}
-		}
-	}
-
-	// Add forward and backward info if dest is not the bridge itself
-	if toNode != c.nodeId {
-		packet.HopLimit -= 1
-		c.appendMyIdAndSnr(disco, isTowardsDestination, false)
-		c.appendMyIdAndSnr(disco, !isTowardsDestination, false)
-	}
-
-	c.appendMyIdAndSnr(disco, isTowardsDestination, true)
-}
-
-func (c *MeshtasticClient) insertUnknownHops(packet *pb.MeshPacket, disco *pb.RouteDiscovery, isTowardsDestination bool) {
-	// Insert unknown
-	var routeCount = 0
-	var snrCount = 0
-	var route *[]uint32
-	var snrList *[]int32
-
-	if isTowardsDestination {
-		routeCount = len(disco.Route)
-		snrCount = len(disco.SnrTowards)
-		route = &disco.Route
-		snrList = &disco.SnrTowards
-	} else {
-		routeCount = len(disco.RouteBack)
-		snrCount = len(disco.SnrBack)
-		route = &disco.RouteBack
-		snrList = &disco.SnrBack
-	}
-
-	if packet.HopStart != 0 && packet.HopLimit <= packet.HopStart {
-		hopsTaken := packet.HopStart - packet.HopLimit
-		diff := int(hopsTaken) - routeCount
-
-		for i := 0; i < diff; i++ {
-			if routeCount < len(*route) {
-				r := append(*route, uint32(meshid.BROADCAST_ID))
-				route = &r
-				routeCount += 1
-			}
-		}
-
-		diff = routeCount - snrCount
-		for i := 0; i < diff; i++ {
-			if snrCount < len(*snrList) {
-				s := append(*snrList, math.MinInt8) // Min == SNR Unknown
-				snrList = &s
-				snrCount += 1
-			}
-		}
-	}
-}
-
-func (c *MeshtasticClient) appendMyIdAndSnr(disco *pb.RouteDiscovery, isTowardsDestination bool, snrOnly bool) {
-	// Insert unknown
-	var routeCount = 0
-	var snrCount = 0
-	var route *[]uint32
-	var snrList *[]int32
-
-	if isTowardsDestination {
-		routeCount = len(disco.Route)
-		snrCount = len(disco.SnrTowards)
-		route = &disco.Route
-		snrList = &disco.SnrTowards
-	} else {
-		routeCount = len(disco.RouteBack)
-		snrCount = len(disco.SnrBack)
-		route = &disco.RouteBack
-		snrList = &disco.SnrBack
-	}
-
-	if snrCount <= len(*route) {
-		s := append(*snrList, 0)
-		snrList = &s
-		snrCount += 1
-
-		if isTowardsDestination {
-			disco.SnrTowards = *snrList
-		} else {
-			disco.SnrBack = *snrList
-		}
-	}
-
-	if snrOnly {
+	if !c.managedNodeFunc(toNode) {
 		return
 	}
 
-	if routeCount <= len(*route) {
-		r := append(*route, uint32(c.nodeId))
-		route = &r
+	// Insert placeholder entries for nodes that didn't add themselves to the route
+	// (older firmware or nodes without the channel key)
+	c.insertUnknownHops(packet.MeshPacket, disco, false)
 
-		if isTowardsDestination {
-			disco.Route = *route
-		} else {
-			disco.RouteBack = *route
-		}
+	// Add gateway node to return route if present and not already included
+	c.addGatewayToRoute(packet, disco, false)
+
+	// If the destination is a managed node but not the bridge itself,
+	// add the bridge to the return route (it's the last real hop before the managed node)
+	if toNode != c.nodeId {
+		c.addNodeToRouteIfMissing(disco, c.nodeId, 0, false)
 	}
 
+	// Add final SNR entry for the return path destination (the managed node)
+	// Use 0 since we don't have real SNR data for this virtual hop
+	disco.SnrBack = append(disco.SnrBack, 0)
+}
+
+// insertUnknownHops adds placeholder entries for hops that didn't add themselves to the route.
+// This handles older firmware versions that don't support traceroutes or nodes without the channel key.
+func (c *MeshtasticClient) insertUnknownHops(packet *pb.MeshPacket, disco *pb.RouteDiscovery, isForwardRoute bool) {
+	var route *[]uint32
+	var snrList *[]int32
+
+	if isForwardRoute {
+		route = &disco.Route
+		snrList = &disco.SnrTowards
+	} else {
+		route = &disco.RouteBack
+		snrList = &disco.SnrBack
+	}
+
+	if packet.HopStart == 0 || packet.HopLimit > packet.HopStart {
+		return
+	}
+
+	hopsTaken := int(packet.HopStart - packet.HopLimit)
+	routeCount := len(*route)
+
+	// Add unknown node placeholders for missing hops
+	for i := routeCount; i < hopsTaken; i++ {
+		*route = append(*route, uint32(meshid.BROADCAST_ID))
+	}
+
+	// Ensure SNR list matches route length
+	for len(*snrList) < len(*route) {
+		*snrList = append(*snrList, math.MinInt8) // MinInt8 == SNR Unknown
+	}
+}
+
+// addGatewayToRoute adds the gateway node to the appropriate route if it's not already present.
+func (c *MeshtasticClient) addGatewayToRoute(packet connectors.NetworkMeshPacket, disco *pb.RouteDiscovery, isForwardRoute bool) {
+	if packet.GatewayNode == 0 || packet.GatewayNode == meshid.NodeID(packet.From) {
+		return
+	}
+
+	c.addNodeToRouteIfMissing(disco, packet.GatewayNode, int32(packet.RxSnr*4), isForwardRoute)
+}
+
+// addNodeToRouteIfMissing adds a node to the specified route if it's not already present.
+func (c *MeshtasticClient) addNodeToRouteIfMissing(disco *pb.RouteDiscovery, nodeID meshid.NodeID, snr int32, isForwardRoute bool) {
+	if isForwardRoute {
+		if !slices.Contains(disco.Route, uint32(nodeID)) {
+			disco.Route = append(disco.Route, uint32(nodeID))
+			disco.SnrTowards = append(disco.SnrTowards, snr)
+		}
+	} else {
+		if !slices.Contains(disco.RouteBack, uint32(nodeID)) {
+			disco.RouteBack = append(disco.RouteBack, uint32(nodeID))
+			disco.SnrBack = append(disco.SnrBack, snr)
+		}
+	}
 }
 
 func (c *MeshtasticClient) logRoute(r *pb.RouteDiscovery, origin, dest uint32) {
