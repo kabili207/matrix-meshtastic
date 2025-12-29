@@ -72,12 +72,8 @@ func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortN
 
 	if from == c.nodeId {
 		nodeInfo.IsUnmessagable = ptr.Ptr(true)
-		// Don't use REPEATER role. Repeaters are not supposed to send their own node info, telemetry, etc.
-		// While they don't crash, client apps can get a tad confused if we break this assumption
-		nodeInfo.Role = pb.Config_DeviceConfig_ROUTER
-		// As funny as this is, it crashes the Android app prior to version 2.5.23
-		// https://github.com/meshtastic/Meshtastic-Android/issues/1787
-		nodeInfo.HwModel = pb.HardwareModel_RESERVED_FRIED_CHICKEN
+		// We used to use ROUTER, but the new CLIENT_BASE is more accurate to what we do
+		nodeInfo.Role = pb.Config_DeviceConfig_CLIENT_BASE
 	}
 
 	_, err := c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
@@ -303,10 +299,10 @@ func (c *MeshtasticClient) SendMapReport(from meshid.NodeID, longName, shortName
 		return 0, errors.New("a valid location is required")
 	}
 
-	role := pb.Config_DeviceConfig_CLIENT
+	role := pb.Config_DeviceConfig_CLIENT_MUTE
 	hw := pb.HardwareModel_PRIVATE_HW
 	if from == c.nodeId {
-		role = pb.Config_DeviceConfig_REPEATER
+		role = pb.Config_DeviceConfig_CLIENT_BASE
 	}
 
 	// TODO: Pull from root topic
