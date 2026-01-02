@@ -89,12 +89,9 @@ func (c *MeshtasticClient) SendNodeInfo(from, to meshid.NodeID, longName, shortN
 	return err
 }
 
-// SendTelemetry broadcasts as basic DeviceMetrics telemetry packet to the mesh
-func (c *MeshtasticClient) SendTelemetry(from, to meshid.NodeID) error {
-
-	now := time.Now()
-	now = now.UTC()
-
+// buildDeviceMetrics creates a DeviceMetrics telemetry message
+func (c *MeshtasticClient) buildDeviceMetrics() *pb.Telemetry {
+	now := time.Now().UTC()
 	upTime := now.Sub(*c.startTime)
 	uptimeSec := uint32(upTime.Abs().Seconds())
 
@@ -102,7 +99,7 @@ func (c *MeshtasticClient) SendTelemetry(from, to meshid.NodeID) error {
 	battLevel := uint32(101)
 	voltage := float32(5.0)
 
-	nodeInfo := pb.Telemetry{
+	return &pb.Telemetry{
 		Time: uint32(now.Unix()),
 		Variant: &pb.Telemetry_DeviceMetrics{
 			DeviceMetrics: &pb.DeviceMetrics{
@@ -112,41 +109,32 @@ func (c *MeshtasticClient) SendTelemetry(from, to meshid.NodeID) error {
 			},
 		},
 	}
-
-	_, err := c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
-		PortNum:   pb.PortNum_TELEMETRY_APP,
-		Encrypted: PSKEncryption,
-		From:      from,
-		To:        to,
-	})
-	return err
 }
 
-func (c *MeshtasticClient) SendHostMetrics(from, to meshid.NodeID) error {
-
-	now := time.Now()
-	now = now.UTC()
+// buildHostMetrics creates a HostMetrics telemetry message
+func (c *MeshtasticClient) buildHostMetrics() (*pb.Telemetry, error) {
+	now := time.Now().UTC()
 
 	meminfo, err := mem.VirtualMemory()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	loadAvg, err := load.Avg()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	uptime, err := host.Uptime()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	diskUsage, err := disk.Usage("/")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	nodeInfo := pb.Telemetry{
+	return &pb.Telemetry{
 		Time: uint32(now.Unix()),
 		Variant: &pb.Telemetry_HostMetrics{
 			HostMetrics: &pb.HostMetrics{
@@ -158,9 +146,13 @@ func (c *MeshtasticClient) SendHostMetrics(from, to meshid.NodeID) error {
 				Diskfree1Bytes: diskUsage.Free,
 			},
 		},
-	}
+	}, nil
+}
 
-	_, err = c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
+// SendTelemetry broadcasts a basic DeviceMetrics telemetry packet to the mesh
+func (c *MeshtasticClient) SendTelemetry(from, to meshid.NodeID) error {
+	telemetry := c.buildDeviceMetrics()
+	_, err := c.sendProtoMessage(c.primaryChannel, telemetry, PacketInfo{
 		PortNum:   pb.PortNum_TELEMETRY_APP,
 		Encrypted: PSKEncryption,
 		From:      from,
@@ -169,13 +161,56 @@ func (c *MeshtasticClient) SendHostMetrics(from, to meshid.NodeID) error {
 	return err
 }
 
-// SendNeighborInfo will broadcast the list of neighbor IDs to the mesh.
-// The sender's node ID will be remove from the neighbor list if detected
-func (c *MeshtasticClient) SendNeighborInfo(from meshid.NodeID, neighborIDs []meshid.NodeID, broadcastInterval uint32) error {
+// SendTelemetryResponse sends a DeviceMetrics telemetry response to a request
+func (c *MeshtasticClient) SendTelemetryResponse(from, to meshid.NodeID, channel meshid.ChannelDef, encType EncryptionType, requestId uint32) error {
+	telemetry := c.buildDeviceMetrics()
+	_, err := c.sendProtoMessage(channel, telemetry, PacketInfo{
+		PortNum:   pb.PortNum_TELEMETRY_APP,
+		Encrypted: encType,
+		From:      from,
+		To:        to,
+		RequestId: requestId,
+	})
+	return err
+}
 
-	// Taken from mesh.options in protobuf project
-	MAX_NEIGHBOR_LEN := 10
+// SendHostMetrics broadcasts a HostMetrics telemetry packet to the mesh
+func (c *MeshtasticClient) SendHostMetrics(from, to meshid.NodeID) error {
+	telemetry, err := c.buildHostMetrics()
+	if err != nil {
+		return err
+	}
+	_, err = c.sendProtoMessage(c.primaryChannel, telemetry, PacketInfo{
+		PortNum:   pb.PortNum_TELEMETRY_APP,
+		Encrypted: PSKEncryption,
+		From:      from,
+		To:        to,
+	})
+	return err
+}
 
+// SendHostMetricsResponse sends a HostMetrics telemetry response to a request
+func (c *MeshtasticClient) SendHostMetricsResponse(from, to meshid.NodeID, channel meshid.ChannelDef, encType EncryptionType, requestId uint32) error {
+	telemetry, err := c.buildHostMetrics()
+	if err != nil {
+		return err
+	}
+	_, err = c.sendProtoMessage(channel, telemetry, PacketInfo{
+		PortNum:   pb.PortNum_TELEMETRY_APP,
+		Encrypted: encType,
+		From:      from,
+		To:        to,
+		RequestId: requestId,
+	})
+	return err
+}
+
+// maxNeighborLen is taken from mesh.options in the protobuf project
+const maxNeighborLen = 10
+
+// buildNeighborInfo creates a NeighborInfo message from a list of neighbor IDs.
+// The sender's node ID will be removed from the neighbor list if detected.
+func buildNeighborInfo(from meshid.NodeID, neighborIDs []meshid.NodeID, broadcastInterval uint32) *pb.NeighborInfo {
 	neighbors := []*pb.Neighbor{}
 	for _, id := range neighborIDs {
 		if id != from && id > 1 {
@@ -183,22 +218,39 @@ func (c *MeshtasticClient) SendNeighborInfo(from meshid.NodeID, neighborIDs []me
 		}
 	}
 
-	if len(neighbors) > MAX_NEIGHBOR_LEN {
-		neighbors = neighbors[:MAX_NEIGHBOR_LEN]
+	if len(neighbors) > maxNeighborLen {
+		neighbors = neighbors[:maxNeighborLen]
 	}
 
-	nodeInfo := pb.NeighborInfo{
+	return &pb.NeighborInfo{
 		NodeId:                    uint32(from),
 		Neighbors:                 neighbors,
 		LastSentById:              uint32(from),
 		NodeBroadcastIntervalSecs: broadcastInterval,
 	}
+}
 
-	_, err := c.sendProtoMessage(c.primaryChannel, &nodeInfo, PacketInfo{
+// SendNeighborInfo broadcasts the list of neighbor IDs to the mesh.
+func (c *MeshtasticClient) SendNeighborInfo(from meshid.NodeID, neighborIDs []meshid.NodeID, broadcastInterval uint32) error {
+	neighborInfo := buildNeighborInfo(from, neighborIDs, broadcastInterval)
+	_, err := c.sendProtoMessage(c.primaryChannel, neighborInfo, PacketInfo{
 		PortNum:   pb.PortNum_NEIGHBORINFO_APP,
 		Encrypted: PSKEncryption,
 		From:      from,
 		To:        meshid.BROADCAST_ID_NO_LORA,
+	})
+	return err
+}
+
+// SendNeighborInfoResponse sends a neighbor info response to a request.
+func (c *MeshtasticClient) SendNeighborInfoResponse(from, to meshid.NodeID, neighborIDs []meshid.NodeID, broadcastInterval uint32, channel meshid.ChannelDef, encType EncryptionType, requestId uint32) error {
+	neighborInfo := buildNeighborInfo(from, neighborIDs, broadcastInterval)
+	_, err := c.sendProtoMessage(channel, neighborInfo, PacketInfo{
+		PortNum:   pb.PortNum_NEIGHBORINFO_APP,
+		Encrypted: encType,
+		From:      from,
+		To:        to,
+		RequestId: requestId,
 	})
 	return err
 }

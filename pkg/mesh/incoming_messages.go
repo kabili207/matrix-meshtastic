@@ -298,12 +298,22 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 	case pb.PortNum_TELEMETRY_APP:
 		var t = pb.Telemetry{}
 		err = proto.Unmarshal(message.Payload, &t)
-		c.printPacketDetails(packet, &t)
+
+		// Check if this is a telemetry request (firmware 2.7.15+)
+		// Requests have WantResponse set and are sent to a specific node (not broadcast)
+		if message.WantResponse && packet.To != uint32(meshid.BROADCAST_ID) {
+			c.handleTelemetryRequest(packet, &t)
+		}
 
 	case pb.PortNum_NEIGHBORINFO_APP:
 		var n = pb.NeighborInfo{}
 		err = proto.Unmarshal(message.Payload, &n)
-		c.printPacketDetails(packet, &n)
+
+		// Check if this is a neighbor info request (firmware 2.7.15+)
+		// Requests have WantResponse set and are sent to a specific node (not broadcast)
+		if message.WantResponse && packet.To != uint32(meshid.BROADCAST_ID) {
+			c.handleNeighborInfoRequest(packet, &n)
+		}
 
 	case pb.PortNum_STORE_FORWARD_APP:
 		var s = pb.StoreAndForward{}

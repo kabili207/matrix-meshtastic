@@ -173,6 +173,20 @@ func (c *MeshtasticConnector) Start(ctx context.Context) error {
 		}
 		return ptr.Ptr(base64.StdEncoding.EncodeToString(raw))
 	})
+	// Set up neighbor provider for on-demand neighbor info requests (firmware 2.7.15+)
+	c.meshClient.SetNeighborProvider(func(nodeID meshid.NodeID) []meshid.NodeID {
+		directNeighbors, err := c.meshDB.MeshNodeInfo.GetDirectNeighbors(context.Background())
+		if err != nil {
+			c.log.Err(err).Msg("Failed to get neighbors for request response")
+			return nil
+		}
+		nodeIDs := []meshid.NodeID{}
+		for _, n := range directNeighbors {
+			nodeIDs = append(nodeIDs, n.NodeID)
+		}
+		return nodeIDs
+	})
+	c.meshClient.SetNeighborBroadcastInterval(uint32(rateNeighborInfo.Seconds()))
 	c.meshClient.Connect()
 
 	return nil

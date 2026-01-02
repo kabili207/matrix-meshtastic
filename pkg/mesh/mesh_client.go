@@ -63,6 +63,11 @@ type MeshtasticClient struct {
 	nodeInfoSendCache map[meshid.NodeID]time.Time
 
 	meshConnectors []connectors.MeshConnector
+
+	// Request handling for on-demand data requests (firmware 2.7.15+)
+	requestThrottle           *requestThrottle
+	neighborProvider          NeighborProvider
+	neighborBroadcastInterval *uint32
 }
 
 func NewMeshtasticClient(nodeId meshid.NodeID, logger zerolog.Logger) *MeshtasticClient {
@@ -78,6 +83,8 @@ func NewMeshtasticClient(nodeId meshid.NodeID, logger zerolog.Logger) *Meshtasti
 		log:               logger,
 		hopLimit:          DefaultHopLimit,
 		meshConnectors:    []connectors.MeshConnector{},
+		// 3-minute throttle period matches firmware behavior
+		requestThrottle: newRequestThrottle(3 * time.Minute),
 	}
 
 	mc.packetCache = ttlcache.New(
@@ -261,6 +268,18 @@ func (c *MeshtasticClient) SetPublicKeyRequestHandler(handler KeyRequestFunc) {
 
 func (c *MeshtasticClient) SetPrivateKeyRequestHandler(handler KeyRequestFunc) {
 	c.privKeyRequestHandler = handler
+}
+
+// SetNeighborProvider sets the function that provides neighbor information for managed nodes.
+// This is used to respond to on-demand neighbor info requests (firmware 2.7.15+).
+func (c *MeshtasticClient) SetNeighborProvider(provider NeighborProvider) {
+	c.neighborProvider = provider
+}
+
+// SetNeighborBroadcastInterval sets the interval (in seconds) at which neighbor info is broadcast.
+// This value is included in neighbor info responses.
+func (c *MeshtasticClient) SetNeighborBroadcastInterval(interval uint32) {
+	c.neighborBroadcastInterval = &interval
 }
 
 func (c *MeshtasticClient) sendProtoMessage(channel meshid.ChannelDef, message proto.Message, info PacketInfo) (packetID uint32, err error) {
