@@ -144,7 +144,7 @@ func fnNodeInfo(ce *commands.Event) {
 			}
 		} else {
 			mtxID := id.UserID(ce.Args[0])
-			if _, _, err := mtxID.ParseAndValidate(); err == nil {
+			if _, _, err := mtxID.ParseAndValidateRelaxed(); err == nil {
 				userMXID = mtxID
 			}
 		}
@@ -203,7 +203,7 @@ func fnTraceroute(ce *commands.Event) {
 	} else {
 		// Try parsing as a Matrix user ID
 		mtxID := id.UserID(ce.Args[0])
-		if _, _, err := mtxID.ParseAndValidate(); err == nil {
+		if _, _, err := mtxID.ParseAndValidateRelaxed(); err == nil {
 			if gid, ok := ce.Bridge.Matrix.ParseGhostMXID(mtxID); ok {
 				if nodeID, err := meshid.ParseUserID(gid); err == nil {
 					targetNode = nodeID

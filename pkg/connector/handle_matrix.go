@@ -352,7 +352,7 @@ func (c *MeshtasticClient) UpdateLastSeenDate(ctx context.Context, sender id.Use
 	c.main.meshDB.MeshNodeInfo.SetLastSeen(ctx, nodeID, true)
 }
 
-func (mc *MeshtasticClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.MatrixMembershipChange) (bool, error) {
+func (mc *MeshtasticClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.MatrixMembershipChange) (*bridgev2.MatrixMembershipResult, error) {
 	log := mc.log.With().
 		Str("action", "handle_membership_change").
 		Str("portal", string(msg.Portal.ID)).
@@ -360,7 +360,7 @@ func (mc *MeshtasticClient) HandleMatrixMembership(ctx context.Context, msg *bri
 	log.Debug().Msg("Handling membership change")
 
 	if msg.Type != bridgev2.Join {
-		return false, nil
+		return nil, nil
 	}
 
 	var err error
@@ -371,26 +371,27 @@ func (mc *MeshtasticClient) HandleMatrixMembership(ctx context.Context, msg *bri
 		_ = target
 		nodeID, err = meshid.ParseUserID(target.ID)
 		if err != nil {
-			return false, fmt.Errorf("failed to parse node ID for user: %w", err)
+			return nil, fmt.Errorf("failed to parse node ID for user: %w", err)
 		}
 	case *bridgev2.UserLogin:
 		ghost, err := target.Bridge.GetGhostByID(ctx, networkid.UserID(target.ID))
 		if err != nil {
-			return false, fmt.Errorf("failed to get ghost for user: %w", err)
+			return nil, fmt.Errorf("failed to get ghost for user: %w", err)
 		}
 		nodeID, err = meshid.ParseUserID(ghost.ID)
 		if err != nil {
-			return false, fmt.Errorf("failed to parse node ID for user: %w", err)
+			return nil, fmt.Errorf("failed to parse node ID for user: %w", err)
 		}
 	default:
-		return false, fmt.Errorf("cannot get target intent: unknown type: %T", target)
+		return nil, fmt.Errorf("cannot get target intent: unknown type: %T", target)
 	}
 
 	if !mc.main.IsManagedNode(nodeID) {
-		return false, nil
+
+		return nil, nil
 	}
 
-	return true, nil
+	return &bridgev2.MatrixMembershipResult{RedirectTo: meshid.MakeUserID(nodeID)}, nil
 }
 
 func (c *MeshtasticClient) HandleMatrixReactionRemove(ctx context.Context, msg *bridgev2.MatrixReactionRemove) error {

@@ -319,6 +319,10 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 		var s = pb.StoreAndForward{}
 		err = proto.Unmarshal(message.Payload, &s)
 
+	case pb.PortNum_STORE_FORWARD_PLUSPLUS_APP:
+		var s = pb.StoreAndForward{}
+		err = proto.Unmarshal(message.Payload, &s)
+
 	case pb.PortNum_ROUTING_APP:
 		var r = pb.Routing{}
 		err = proto.Unmarshal(message.Payload, &r)
