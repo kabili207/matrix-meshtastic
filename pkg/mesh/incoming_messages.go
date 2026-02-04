@@ -199,7 +199,9 @@ func (c *MeshtasticClient) processMessage(packet connectors.NetworkMeshPacket, m
 
 	switch message.Portnum {
 	case pb.PortNum_TEXT_MESSAGE_APP:
-		if message.Emoji == 1 {
+		// The Android app has started sending the codepoint instead of a boolean,
+		// so we just look for non-zero
+		if message.Emoji != 0 {
 			evt = &MeshReactionEvent{
 				MeshEvent: meshEventEnv,
 				Emoji:     string(message.Payload),
