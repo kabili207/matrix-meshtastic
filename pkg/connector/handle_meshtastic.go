@@ -339,7 +339,7 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 		mn.NodeID = evt.From
 	}
 	needUpdate := false
-	if mn.UserID != evt.UserID || mn.LongName != evt.LongName || mn.ShortName != evt.ShortName || slices.Equal(mn.PublicKey, evt.PublicKey) {
+	if mn.UserID != evt.UserID || mn.LongName != evt.LongName || mn.ShortName != evt.ShortName || !slices.Equal(mn.PublicKey, evt.PublicKey) {
 		needUpdate = true
 		mn.UserID = evt.UserID
 		mn.LongName = evt.LongName
