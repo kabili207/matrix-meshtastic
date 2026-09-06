@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
+	"github.com/kabili207/meshtastic-go/core/crypto"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
@@ -16,11 +16,10 @@ import (
 )
 
 type MeshtasticClient struct {
-	log        zerolog.Logger
-	bridge     *bridgev2.Bridge
-	main       *MeshtasticConnector
-	UserLogin  *bridgev2.UserLogin
-	MeshClient *mesh.MeshtasticClient
+	log       zerolog.Logger
+	bridge    *bridgev2.Bridge
+	main      *MeshtasticConnector
+	UserLogin *bridgev2.UserLogin
 }
 
 var _ bridgev2.NetworkAPI = (*MeshtasticClient)(nil)
@@ -53,7 +52,7 @@ func (mc *MeshtasticClient) Connect(ctx context.Context) {
 	}
 	if len(nodeInfo.PrivateKey) == 0 {
 		mc.log.Debug().Msg("Generating new keypair")
-		pub, priv, err := mc.main.meshClient.GenerateKeyPair()
+		pub, priv, err := crypto.GenerateKeyPair()
 		if err != nil {
 			mc.UserLogin.BridgeState.Send(status.BridgeState{
 				StateEvent: status.StateBadCredentials,
@@ -80,15 +79,14 @@ func (mc *MeshtasticClient) Connect(ctx context.Context) {
 			return
 		}
 	}
-	mc.MeshClient.AddEventHandler(mc.handleMeshEvent)
 }
 
 func (mc *MeshtasticClient) Disconnect() {
-	mc.MeshClient.Disconnect()
+	// The mesh transport is owned by the connector, not per-login. Nothing to do.
 }
 
 func (tc *MeshtasticClient) IsLoggedIn() bool {
-	return tc.MeshClient.IsConnected()
+	return tc.main.meshBridge != nil && tc.main.meshBridge.IsConnected()
 }
 
 // LogoutRemote is a no-op for this simple connector.

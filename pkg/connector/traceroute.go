@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
+	meshevent "github.com/kabili207/meshtastic-go/device/event"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/id"
@@ -29,7 +29,7 @@ type TracerouteRequest struct {
 	TargetNode meshid.NodeID
 	RoomID     id.RoomID
 	Timestamp  time.Time
-	Channel    meshid.ChannelDef
+	Channel    string
 }
 
 // TracerouteTracker manages pending traceroute requests and rate limiting
@@ -111,16 +111,16 @@ func (t *TracerouteTracker) CleanupExpired() {
 }
 
 // handleMeshTraceroute handles traceroute response events
-func (c *MeshtasticConnector) handleMeshTraceroute(evt *mesh.MeshTracerouteEvent) {
+func (c *MeshtasticConnector) handleMeshTraceroute(evt *meshevent.TracerouteReceived) {
 	log := c.log.With().
 		Str("action", "handle_traceroute_response").
-		Stringer("from_node_id", evt.From).
-		Stringer("to_node_id", evt.To).
-		Uint32("request_id", evt.RequestId).
+		Stringer("from_node_id", meshid.FromCore(evt.From)).
+		Stringer("to_node_id", meshid.FromCore(evt.To)).
+		Uint32("request_id", evt.OriginalPacketID).
 		Logger()
 
-	// Look up the pending request using the RequestId
-	req := c.tracerouteTracker.GetAndRemoveRequest(evt.RequestId)
+	// Look up the pending request using the original request packet ID
+	req := c.tracerouteTracker.GetAndRemoveRequest(evt.OriginalPacketID)
 	if req == nil {
 		log.Debug().Msg("Received traceroute response for unknown request, ignoring")
 		return
@@ -140,8 +140,10 @@ func (c *MeshtasticConnector) handleMeshTraceroute(evt *mesh.MeshTracerouteEvent
 }
 
 // formatTracerouteResponse creates a human-readable traceroute result
-func (c *MeshtasticConnector) formatTracerouteResponse(evt *mesh.MeshTracerouteEvent, req *TracerouteRequest) string {
+func (c *MeshtasticConnector) formatTracerouteResponse(evt *meshevent.TracerouteReceived, req *TracerouteRequest) string {
 	var sb strings.Builder
+
+	rd := evt.RouteDiscovery
 
 	sb.WriteString(fmt.Sprintf("**Traceroute to %s**\n", req.TargetNode))
 
@@ -149,11 +151,11 @@ func (c *MeshtasticConnector) formatTracerouteResponse(evt *mesh.MeshTracerouteE
 	sb.WriteString("**Route:**\n")
 	sb.WriteString(fmt.Sprintf("&nbsp;&nbsp;%s\n", c.getNodeDisplayName(req.FromNode)))
 
-	for i, nodeID := range evt.Route {
+	for i, nodeID := range rd.Route {
 		node := meshid.NodeID(nodeID)
 		snrStr := "?"
-		if i < len(evt.SnrTowards) && evt.SnrTowards[i] != math.MinInt8 {
-			snrStr = fmt.Sprintf("%.2f", float32(evt.SnrTowards[i])/4)
+		if i < len(rd.SnrTowards) && rd.SnrTowards[i] != math.MinInt8 {
+			snrStr = fmt.Sprintf("%.2f", float32(rd.SnrTowards[i])/4)
 		}
 		nodeName := c.getNodeDisplayName(node)
 		sb.WriteString(fmt.Sprintf("&nbsp;&nbsp;&nbsp↓ %s dB\n&nbsp;&nbsp;%s\n", snrStr, nodeName))
@@ -161,8 +163,8 @@ func (c *MeshtasticConnector) formatTracerouteResponse(evt *mesh.MeshTracerouteE
 
 	// Final hop SNR (received at destination)
 	destSnrStr := "?"
-	if len(evt.SnrTowards) > 0 {
-		lastSnr := evt.SnrTowards[len(evt.SnrTowards)-1]
+	if len(rd.SnrTowards) > 0 {
+		lastSnr := rd.SnrTowards[len(rd.SnrTowards)-1]
 		if lastSnr != math.MinInt8 {
 			destSnrStr = fmt.Sprintf("%.2f", float32(lastSnr)/4)
 		}
@@ -170,15 +172,15 @@ func (c *MeshtasticConnector) formatTracerouteResponse(evt *mesh.MeshTracerouteE
 	sb.WriteString(fmt.Sprintf("&nbsp;&nbsp;&nbsp;↓ %s dB\n&nbsp;&nbsp;%s\n", destSnrStr, c.getNodeDisplayName(req.TargetNode)))
 
 	// Format return route if available
-	if len(evt.RouteBack) > 0 {
+	if len(rd.RouteBack) > 0 {
 		sb.WriteString("\n**Return Route:**\n")
 		sb.WriteString(fmt.Sprintf("&nbsp;&nbsp;%s\n", c.getNodeDisplayName(req.TargetNode)))
 
-		for i, nodeID := range evt.RouteBack {
+		for i, nodeID := range rd.RouteBack {
 			node := meshid.NodeID(nodeID)
 			snrStr := "?"
-			if i < len(evt.SnrBack) && evt.SnrBack[i] != math.MinInt8 {
-				snrStr = fmt.Sprintf("%.2f", float32(evt.SnrBack[i])/4)
+			if i < len(rd.SnrBack) && rd.SnrBack[i] != math.MinInt8 {
+				snrStr = fmt.Sprintf("%.2f", float32(rd.SnrBack[i])/4)
 			}
 			nodeName := c.getNodeDisplayName(node)
 			sb.WriteString(fmt.Sprintf("&nbsp;&nbsp;&nbsp;↓ %s dB\n&nbsp;&nbsp;%s\n", snrStr, nodeName))
@@ -186,8 +188,8 @@ func (c *MeshtasticConnector) formatTracerouteResponse(evt *mesh.MeshTracerouteE
 
 		// Final hop SNR for return
 		returnSnrStr := "?"
-		if len(evt.SnrBack) > 0 {
-			lastSnr := evt.SnrBack[len(evt.SnrBack)-1]
+		if len(rd.SnrBack) > 0 {
+			lastSnr := rd.SnrBack[len(rd.SnrBack)-1]
 			if lastSnr != math.MinInt8 {
 				returnSnrStr = fmt.Sprintf("%.2f", float32(lastSnr)/4)
 			}

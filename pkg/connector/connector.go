@@ -3,13 +3,19 @@ package connector
 import (
 	"context"
 	_ "embed"
-	"encoding/base64"
 	"log/slog"
+	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/connector/meshdb"
-	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"github.com/kabili207/matrix-meshtastic/pkg/msgconv"
+	"github.com/kabili207/meshtastic-go/core"
+	pb "github.com/kabili207/meshtastic-go/core/proto"
+	"github.com/kabili207/meshtastic-go/device/node"
+	"github.com/kabili207/meshtastic-go/transport"
+	"github.com/kabili207/meshtastic-go/transport/mqtt"
+	"github.com/kabili207/meshtastic-go/transport/raw"
+	"github.com/kabili207/meshtastic-go/transport/udp"
 	"github.com/rs/zerolog"
 	slogzerolog "github.com/samber/slog-zerolog/v2"
 	"go.mau.fi/util/ptr"
@@ -19,16 +25,24 @@ import (
 )
 
 type MeshtasticConnector struct {
-	log              zerolog.Logger
-	bridge           *bridgev2.Bridge
-	Config           Config
-	meshDB           *meshdb.Database
-	baseNodeID       meshid.NodeID
-	meshClient       *mesh.MeshtasticClient
-	MsgConv          *msgconv.MessageConverter
-	managedNodeCache map[meshid.NodeID]bool
-	bgTaskCanceller  context.CancelFunc
+	log               zerolog.Logger
+	bridge            *bridgev2.Bridge
+	Config            Config
+	meshDB            *meshdb.Database
+	baseNodeID        meshid.NodeID
+	meshBridge        *node.BridgeNode
+	meshCancel        context.CancelFunc
+	primaryChannel    *core.Channel
+	MsgConv           *msgconv.MessageConverter
+	managedNodeCache  map[meshid.NodeID]bool
+	bgTaskCanceller   context.CancelFunc
 	tracerouteTracker *TracerouteTracker
+	prevConnected     bool
+}
+
+// PrimaryChannel returns the configured primary channel for outbound sends.
+func (c *MeshtasticConnector) PrimaryChannel() *core.Channel {
+	return c.primaryChannel
 }
 
 var _ bridgev2.NetworkConnector = (*MeshtasticConnector)(nil)
@@ -145,51 +159,136 @@ func (c *MeshtasticConnector) Start(ctx context.Context) error {
 
 	c.meshDB.Upgrade(ctx)
 
-	c.meshClient = mesh.NewMeshtasticClient(c.GetBaseNodeID(), c.log.With().Logger())
-	c.meshClient.SetHopLimit(c.Config.HopLimit)
+	slogger := slog.New(slogzerolog.Option{Level: slog.LevelInfo, Logger: ptr.Ptr(c.log.With().Logger())}.NewZerologHandler())
 
+	// Build the primary channel and the channel set used by the bridge.
+	primary, err := core.NewChannel(c.Config.PrimaryChannel.Name, c.Config.PrimaryChannel.Key)
+	if err != nil {
+		c.log.Err(err).Msg("Invalid primary channel configuration")
+		return err
+	}
+	c.primaryChannel = primary
+	channelSet := &pb.ChannelSet{
+		Settings: []*pb.ChannelSettings{{Name: primary.GetName(), Psk: primary.GetKeyBytes()}},
+	}
+
+	// Build the transports. MQTT is deprioritized relative to UDP so the faster
+	// path delivers first and slower MQTT sends are paced behind it.
+	var transports []raw.TransportOption
 	if c.Config.UDP {
-		c.meshClient.AddUDPHandler()
+		transports = append(transports, raw.TransportOption{
+			Transport: udp.New(udp.Config{Logger: slogger}),
+		})
 	}
 	if c.Config.Mqtt.Enabled {
-		c.meshClient.AddMQTTHandler(c.Config.Mqtt.Uri, c.Config.Mqtt.Username, c.Config.Mqtt.Password, c.Config.Mqtt.RootTopic)
+		transports = append(transports, raw.TransportOption{
+			Transport: mqtt.New(mqtt.Config{
+				Broker:   c.Config.Mqtt.Uri,
+				Username: c.Config.Mqtt.Username,
+				Password: c.Config.Mqtt.Password,
+				Root:     c.Config.Mqtt.RootTopic,
+				NodeID:   c.GetBaseNodeID().Core(),
+				Logger:   slogger,
+			}),
+			SendDelay: 700 * time.Millisecond,
+			RecvDelay: 500 * time.Millisecond,
+		})
 	}
-	c.meshClient.SetIsManagedNodeHandler(c.IsManagedNode)
-	c.meshClient.SetOnDisconnectHandler(c.onMeshDisconnected)
-	c.meshClient.SetOnConnectHandler(c.onMeshConnected)
-	c.meshClient.AddEventHandler(c.handleGlobalMeshEvent)
-	c.meshClient.SetPrimaryChannel(c.Config.PrimaryChannel.Name, c.Config.PrimaryChannel.Key)
-	c.meshClient.SetPrivateKeyRequestHandler(func(nodeID meshid.NodeID) (key *string) {
-		raw, err := c.getGhostPrivateKey(context.Background(), nodeID)
-		if err != nil || len(raw) == 0 {
-			return nil
-		}
-		return ptr.Ptr(base64.StdEncoding.EncodeToString(raw))
+	multi := raw.NewMultiTransport(raw.MultiConfig{Logger: slogger}, transports...)
+
+	bridgeNode, err := node.NewBridge(node.BridgeConfig{
+		Transport:       multi,
+		NodeID:          c.GetBaseNodeID().Core(),
+		LongName:        c.Config.LongName,
+		ShortName:       c.Config.ShortName,
+		HwModel:         pb.HardwareModel_PRIVATE_HW,
+		Channels:        channelSet,
+		DefaultHopLimit: c.Config.HopLimit,
+		OkToMQTT:        true,
+		IsManagedNode: func(nodeID core.NodeID) bool {
+			return c.IsManagedNode(meshid.FromCore(nodeID))
+		},
+		PrivateKeyForNode: func(nodeID core.NodeID) []byte {
+			raw, err := c.getGhostPrivateKey(context.Background(), meshid.FromCore(nodeID))
+			if err != nil {
+				return nil
+			}
+			return raw
+		},
+		PublicKeyForNode: func(nodeID core.NodeID) []byte {
+			raw, err := c.getGhostPublicKey(context.Background(), meshid.FromCore(nodeID))
+			if err != nil {
+				return nil
+			}
+			return raw
+		},
+		NodeInfoForNode: c.nodeInfoForNode,
+		NeighborProvider: func(nodeID core.NodeID) []core.NodeID {
+			directNeighbors, err := c.meshDB.MeshNodeInfo.GetDirectNeighbors(context.Background())
+			if err != nil {
+				c.log.Err(err).Msg("Failed to get neighbors for request response")
+				return nil
+			}
+			ids := make([]core.NodeID, 0, len(directNeighbors))
+			for _, n := range directNeighbors {
+				ids = append(ids, n.NodeID.Core())
+			}
+			return ids
+		},
+		NeighborBroadcastInterval: uint32(rateNeighborInfo.Seconds()),
+		HostMetricsProvider:       c.buildHostMetrics,
+		OnStateChange:             c.onMeshStateChange,
+		Logger:                    slogger,
 	})
-	c.meshClient.SetPublicKeyRequestHandler(func(nodeID meshid.NodeID) (key *string) {
-		raw, err := c.getGhostPublicKey(context.Background(), nodeID)
-		if err != nil || len(raw) == 0 {
-			return nil
+	if err != nil {
+		c.log.Err(err).Msg("Failed to create mesh bridge")
+		return err
+	}
+	c.meshBridge = bridgeNode
+	c.meshBridge.OnEvent(c.handleGlobalMeshEvent)
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	c.meshCancel = cancel
+	go func() {
+		if err := c.meshBridge.Run(runCtx); err != nil {
+			c.log.Err(err).Msg("Mesh bridge stopped with error")
 		}
-		return ptr.Ptr(base64.StdEncoding.EncodeToString(raw))
-	})
-	// Set up neighbor provider for on-demand neighbor info requests (firmware 2.7.15+)
-	c.meshClient.SetNeighborProvider(func(nodeID meshid.NodeID) []meshid.NodeID {
-		directNeighbors, err := c.meshDB.MeshNodeInfo.GetDirectNeighbors(context.Background())
-		if err != nil {
-			c.log.Err(err).Msg("Failed to get neighbors for request response")
-			return nil
-		}
-		nodeIDs := []meshid.NodeID{}
-		for _, n := range directNeighbors {
-			nodeIDs = append(nodeIDs, n.NodeID)
-		}
-		return nodeIDs
-	})
-	c.meshClient.SetNeighborBroadcastInterval(uint32(rateNeighborInfo.Seconds()))
-	c.meshClient.Connect()
+	}()
 
 	return nil
+}
+
+// nodeInfoForNode supplies NodeInfo details for a managed node to the bridge.
+func (c *MeshtasticConnector) nodeInfoForNode(nodeID core.NodeID) (longName, shortName string, pubKey []byte, ok bool) {
+	id := meshid.FromCore(nodeID)
+	if id == c.GetBaseNodeID() {
+		pub, _ := c.getGhostPublicKey(context.Background(), id)
+		return c.Config.LongName, c.Config.ShortName, pub, true
+	}
+	if !c.IsManagedNode(id) {
+		return "", "", nil, false
+	}
+	nodeInfo, err := c.meshDB.MeshNodeInfo.GetByNodeID(context.Background(), id)
+	if err != nil || nodeInfo == nil {
+		long, short := id.GetDefaultNodeNames()
+		return long, short, nil, true
+	}
+	return nodeInfo.LongName, nodeInfo.ShortName, nodeInfo.PublicKey, true
+}
+
+// onMeshStateChange translates aggregated transport state changes into the
+// connector's connect/disconnect handling.
+func (c *MeshtasticConnector) onMeshStateChange(e transport.ListenerEvent) {
+	switch e {
+	case transport.ListenerEventConnected:
+		isReconnect := c.prevConnected
+		c.prevConnected = true
+		c.onMeshConnected(isReconnect)
+	case transport.ListenerEventReconnecting:
+		// no-op: wait for the reconnect to complete
+	case transport.ListenerEventDisconnected:
+		c.onMeshDisconnected()
+	}
 }
 
 func (c *MeshtasticConnector) Stop(ctx context.Context) error {
@@ -199,19 +298,18 @@ func (c *MeshtasticConnector) Stop(ctx context.Context) error {
 		c.bgTaskCanceller()
 	}
 
-	if c.meshClient != nil {
-		c.meshClient.Disconnect()
+	if c.meshCancel != nil {
+		c.meshCancel()
 	}
 	return nil
 }
 
 func (c *MeshtasticConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
 	login.Client = &MeshtasticClient{
-		UserLogin:  login,
-		MeshClient: c.meshClient,
-		log:        c.log.With().Str("user_id", string(login.ID)).Logger(),
-		bridge:     c.bridge,
-		main:       c,
+		UserLogin: login,
+		log:       c.log.With().Str("user_id", string(login.ID)).Logger(),
+		bridge:    c.bridge,
+		main:      c,
 	}
 	return nil
 }
@@ -242,11 +340,17 @@ func (c *MeshtasticConnector) onMeshConnected(isReconnect bool) {
 						c.log.Err(err).Msg("Error re-keying portal")
 					}
 				}
-				c.meshClient.AddChannelDef(chanDef)
+				if err := c.meshBridge.AddChannel(channelID, chanDef.GetKeyString()); err != nil {
+					c.log.Err(err).Msg("Error adding channel")
+				}
 			}
 		}
 	}
 
+	// Cancel any previously running background tasks before restarting them.
+	if c.bgTaskCanceller != nil {
+		c.bgTaskCanceller()
+	}
 	bgContext, cancelFunc := context.WithCancel(ctx)
 	c.bgTaskCanceller = cancelFunc
 	c.RunNodeInfoTask(bgContext)

@@ -9,8 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
+	"github.com/kabili207/meshtastic-go/core"
+	meshevent "github.com/kabili207/meshtastic-go/device/event"
+	"github.com/kabili207/meshtastic-go/device/node"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
@@ -25,53 +27,83 @@ var (
 	shortUserRegex = regexp.MustCompile(`(?:\b|@\s?)([a-f0-9]{4})\b`)
 )
 
-// Handles events that are more general to the connector
+// Handles events emitted by the mesh bridge.
 func (c *MeshtasticConnector) handleGlobalMeshEvent(rawEvt any) {
 
 	switch evt := rawEvt.(type) {
-	case *mesh.MeshNodeInfoEvent:
+	case *meshevent.NodeInfoUpdated:
 		c.handleMeshNodeInfo(evt)
-	case *mesh.MeshMapReportEvent:
+	case *meshevent.MapReportReceived:
 		c.handleMapReport(evt)
-	case *mesh.MeshLocationEvent:
+	case *meshevent.PositionUpdated:
 		c.handleMeshLocation(evt)
-	case *mesh.MeshWaypointEvent:
+	case *meshevent.WaypointReceived:
 		c.handleMeshWaypoint(evt)
-	case *mesh.MeshTracerouteEvent:
-		c.handleMeshTraceroute(evt)
-	case *mesh.MeshEvent:
-		c.handleUnknownPacket(evt)
+	case *meshevent.TracerouteReceived:
+		// Traceroute requests are answered inside the library; only responses
+		// reach here.
+		if !evt.IsRequest {
+			c.handleMeshTraceroute(evt)
+		}
+	case *meshevent.TextMessage:
+		c.dispatchTextMessage(evt)
+	case *meshevent.PacketReceived:
+		c.handleUnknownPacket(&evt.Event)
 	}
 }
 
-// Handles events that are more user-specific
-func (c *MeshtasticClient) handleMeshEvent(rawEvt any) {
-
-	switch evt := rawEvt.(type) {
-	case *mesh.MeshMessageEvent:
-		c.handleMeshMessage(evt)
-	case *mesh.MeshReactionEvent:
-		c.handleMeshReaction(evt)
+// dispatchTextMessage routes a text message or reaction to every logged-in user
+// so each can decide whether it belongs to one of its portals.
+func (c *MeshtasticConnector) dispatchTextMessage(evt *meshevent.TextMessage) {
+	for _, login := range c.allLoginClients() {
+		if evt.Emoji != 0 {
+			login.handleMeshReaction(evt)
+		} else {
+			login.handleMeshMessage(evt)
+		}
 	}
 }
 
-func (c *MeshtasticConnector) handleUnknownPacket(evt *mesh.MeshEvent) {
-	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
-	c.meshDB.MeshNodeInfo.SetLastSeen(context.Background(), evt.From, evt.IsNeighbor)
+// allLoginClients returns the MeshtasticClient for every active user login.
+func (c *MeshtasticConnector) allLoginClients() []*MeshtasticClient {
+	var clients []*MeshtasticClient
+	for _, login := range c.bridge.GetAllCachedUserLogins() {
+		if mc, ok := login.Client.(*MeshtasticClient); ok && mc != nil {
+			clients = append(clients, mc)
+		}
+	}
+	return clients
 }
 
-func (c *MeshtasticConnector) handleMeshLocation(evt *mesh.MeshLocationEvent) {
+func (c *MeshtasticConnector) handleUnknownPacket(evt *meshevent.Event) {
+	from := meshid.FromCore(evt.From)
+	c.getRemoteGhost(context.Background(), meshid.MakeUserID(from), true)
+	c.meshDB.MeshNodeInfo.SetLastSeen(context.Background(), from, evt.IsNeighbor)
+}
+
+func (c *MeshtasticConnector) handleMeshLocation(evt *meshevent.PositionUpdated) {
+	from := meshid.FromCore(evt.From)
+	lat := float32(0)
+	lon := float32(0)
+	if evt.Position != nil {
+		if evt.Position.LatitudeI != nil {
+			lat = float32(*evt.Position.LatitudeI) * 1e-7
+		}
+		if evt.Position.LongitudeI != nil {
+			lon = float32(*evt.Position.LongitudeI) * 1e-7
+		}
+	}
 	log := c.log.With().
 		Str("action", "location_update").
-		Stringer("node_id", evt.From).
+		Stringer("node_id", from).
 		Logger()
 	log.Info().
-		Float32("latitude", evt.Location.Latitude).
-		Float32("longitude", evt.Location.Latitude).
+		Float32("latitude", lat).
+		Float32("longitude", lon).
 		Msg("Location update received")
 
-	c.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
-	c.meshDB.MeshNodeInfo.SetLastSeen(context.Background(), evt.From, evt.IsNeighbor)
+	c.getRemoteGhost(context.Background(), meshid.MakeUserID(from), true)
+	c.meshDB.MeshNodeInfo.SetLastSeen(context.Background(), from, evt.IsNeighbor)
 }
 
 func (c *MeshtasticClient) joinChannel(channelName string, channelKey string) error {
@@ -98,32 +130,34 @@ func (c *MeshtasticClient) joinChannel(channelName string, channelKey string) er
 
 }
 
-func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
+func (c *MeshtasticClient) handleMeshMessage(evt *meshevent.TextMessage) {
+	from := meshid.FromCore(evt.From)
+	to := meshid.FromCore(evt.To)
 	meta, ok := c.UserLogin.Metadata.(*meshid.UserLoginMetadata)
-	if evt.IsDM && (!ok || meta.NodeID != evt.To) {
+	if evt.IsDM && (!ok || meta.NodeID != to) {
 		return
 	}
 
 	ctx := context.Background()
 
-	c.main.getRemoteGhost(ctx, meshid.MakeUserID(evt.From), true)
+	c.main.getRemoteGhost(ctx, meshid.MakeUserID(from), true)
 
 	var portalKey networkid.PortalKey
 	var messIDSender = ""
 
 	roomType := database.RoomTypeDefault
 	if evt.IsDM {
-		portalKey = c.makeDMPortalKey(evt.From, evt.To)
-		messIDSender = evt.From.String()
+		portalKey = c.makeDMPortalKey(from, to)
+		messIDSender = from.String()
 		roomType = database.RoomTypeDM
 		if evt.WantAck {
-			c.MeshClient.SendAck(evt.To, evt.From, evt.PacketId)
+			c.main.meshBridge.SendAckAs(ctx, to.Core(), from.Core(), evt.PacketID)
 		}
 	} else {
 		portalKey = c.makePortalKey(evt.ChannelName, evt.ChannelKey)
 		messIDSender = evt.ChannelName
 		if evt.WantAck {
-			c.MeshClient.SendAck(c.main.GetBaseNodeID(), evt.From, evt.PacketId)
+			c.main.meshBridge.SendAckAs(ctx, c.main.GetBaseNodeID().Core(), from.Core(), evt.PacketID)
 		}
 	}
 
@@ -144,32 +178,32 @@ func (c *MeshtasticClient) handleMeshMessage(evt *mesh.MeshMessageEvent) {
 		}
 	}
 
-	mess := simplevent.Message[*mesh.MeshMessageEvent]{
+	mess := simplevent.Message[*meshevent.TextMessage]{
 		EventMeta: simplevent.EventMeta{
 			Type: bridgev2.RemoteEventMessage,
 			LogContext: func(c zerolog.Context) zerolog.Context {
-				c = c.Stringer("sender_id", evt.From)
-				c = c.Uint32("message_ts", uint32(evt.Timestamp))
+				c = c.Stringer("sender_id", from)
+				c = c.Time("message_ts", evt.Timestamp)
 				return c
 			},
 			PortalKey:    portalKey,
 			CreatePortal: true,
-			Sender:       c.makeEventSender(evt.From),
-			Timestamp:    time.Unix(int64(evt.Timestamp), 0),
+			Sender:       c.makeEventSender(from),
+			Timestamp:    evt.Timestamp,
 			PreHandleFunc: func(ctx context.Context, p *bridgev2.Portal) {
 				p.RoomType = roomType
 			},
 		},
 		Data:               evt,
-		ID:                 meshid.MakeMessageID(messIDSender, evt.PacketId),
+		ID:                 meshid.MakeMessageID(messIDSender, evt.PacketID),
 		ConvertMessageFunc: c.convertMessageEvent,
 	}
 
 	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)
-	c.main.meshDB.MeshNodeInfo.SetLastSeen(ctx, evt.From, evt.IsNeighbor)
+	c.main.meshDB.MeshNodeInfo.SetLastSeen(ctx, from, evt.IsNeighbor)
 }
 
-func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data *mesh.MeshMessageEvent) (*bridgev2.ConvertedMessage, error) {
+func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data *meshevent.TextMessage) (*bridgev2.ConvertedMessage, error) {
 	mess := data.Message
 	formatted := ""
 	mentions := &event.Mentions{}
@@ -236,17 +270,17 @@ func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *brid
 		formatted = formattedBuilder.String()
 	}
 
-	if strings.Contains(mess, mesh.BellCharacter) {
+	if strings.Contains(mess, meshid.BellCharacter) {
 		if portal.RoomType == database.RoomTypeDM {
 			user := c.bridge.GetCachedUserLoginByID(portal.Receiver)
 			userTag := user.UserMXID.String()
 
-			mess = strings.ReplaceAll(mess, mesh.BellCharacter, userTag)
-			formatted = strings.ReplaceAll(data.Message, mesh.BellCharacter, fmt.Sprintf(`<a href="%s">%s</a>`, user.UserMXID.URI().MatrixToURL(), html.EscapeString(userTag)))
+			mess = strings.ReplaceAll(mess, meshid.BellCharacter, userTag)
+			formatted = strings.ReplaceAll(data.Message, meshid.BellCharacter, fmt.Sprintf(`<a href="%s">%s</a>`, user.UserMXID.URI().MatrixToURL(), html.EscapeString(userTag)))
 			mentions.UserIDs = append(mentions.UserIDs, user.UserMXID)
 		} else {
-			mess = strings.ReplaceAll(mess, mesh.BellCharacter, portal.MXID.String())
-			formatted = strings.ReplaceAll(data.Message, mesh.BellCharacter, fmt.Sprintf(`<a href="%s">%s</a>`, portal.MXID.URI().MatrixToURL(), html.EscapeString("@room")))
+			mess = strings.ReplaceAll(mess, meshid.BellCharacter, portal.MXID.String())
+			formatted = strings.ReplaceAll(data.Message, meshid.BellCharacter, fmt.Sprintf(`<a href="%s">%s</a>`, portal.MXID.URI().MatrixToURL(), html.EscapeString("@room")))
 			mentions.Room = true
 		}
 	}
@@ -266,15 +300,15 @@ func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *brid
 			Content: content,
 		}},
 	}
-	if data.ReplyId != 0 {
+	if data.ReplyID != 0 {
 		var messIDSender string
 		if data.IsDM {
-			messIDSender = data.From.String()
+			messIDSender = meshid.FromCore(data.From).String()
 		} else {
 			messIDSender = data.ChannelName
 		}
 		m.ReplyTo = &networkid.MessageOptionalPartID{
-			MessageID: meshid.MakeMessageID(messIDSender, data.ReplyId),
+			MessageID: meshid.MakeMessageID(messIDSender, data.ReplyID),
 		}
 	}
 	return m, nil
@@ -304,8 +338,7 @@ func (c *MeshtasticConnector) requestGhostNodeInfo(ghostID networkid.UserID) {
 		return
 	}
 
-	pubKey, _ := c.getGhostPublicKey(context.Background(), c.GetBaseNodeID())
-	err = c.meshClient.SendNodeInfo(c.GetBaseNodeID(), nodeId, c.Config.LongName, c.Config.ShortName, true, pubKey)
+	_, err = c.meshBridge.SendNodeInfoAs(context.Background(), c.GetBaseNodeID().Core(), nodeId.Core(), node.WithWantResponse())
 	if err != nil {
 		log.Err(err).
 			Msg("unable to request node info")
@@ -314,58 +347,62 @@ func (c *MeshtasticConnector) requestGhostNodeInfo(ghostID networkid.UserID) {
 	log.Debug().Msg("Sent request for node info")
 }
 
-func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
+func (c *MeshtasticConnector) handleMeshNodeInfo(evt *meshevent.NodeInfoUpdated) {
+	from := meshid.FromCore(evt.From)
+	to := meshid.FromCore(evt.To)
+	user := evt.User
+	if user == nil {
+		return
+	}
 	log := c.log.With().
 		Str("action", "handle_mesh_nodeinfo").
-		Stringer("from_node_id", evt.From).
-		Stringer("to_node_id", evt.To).
+		Stringer("from_node_id", from).
+		Stringer("to_node_id", to).
 		Logger()
 	ctx := log.WithContext(context.Background())
-	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(evt.From), evt.To != c.GetBaseNodeID())
+	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(from), to != c.GetBaseNodeID())
 	if err != nil {
 		log.Err(err).Msg("Failed to get ghost")
 		return
 	}
 
-	//c.sendMeshPresense(&evt.Envelope)
-
-	if evt.To != meshid.BROADCAST_ID && evt.WantResponse {
-		c.sendNodeInfo(evt.To, evt.From, false)
+	if !evt.To.IsBroadcast() && evt.WantResponse {
+		c.sendNodeInfo(to, from, false)
 	}
 
-	mn, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, evt.From)
+	mn, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, from)
 	if mn == nil || err != nil {
 		mn = c.meshDB.MeshNodeInfo.New()
-		mn.NodeID = evt.From
+		mn.NodeID = from
 	}
 	needUpdate := false
-	if mn.UserID != evt.UserID || mn.LongName != evt.LongName || mn.ShortName != evt.ShortName || !slices.Equal(mn.PublicKey, evt.PublicKey) {
+	if mn.UserID != user.Id || mn.LongName != user.LongName || mn.ShortName != user.ShortName || !slices.Equal(mn.PublicKey, user.PublicKey) {
 		needUpdate = true
-		mn.UserID = evt.UserID
-		mn.LongName = evt.LongName
-		mn.ShortName = evt.ShortName
-		mn.PublicKey = evt.PublicKey
+		mn.UserID = user.Id
+		mn.LongName = user.LongName
+		mn.ShortName = user.ShortName
+		mn.PublicKey = user.PublicKey
 	}
-	mn.Role = evt.Role
+	mn.Role = user.Role.String()
 	mn.IsDirect = evt.IsNeighbor
-	mn.IsLicensed = evt.IsLicensed
-	mn.IsUnmessagable = evt.IsUnmessagable
-	mn.LastSeen = ptr.Ptr(time.Unix(int64(evt.Timestamp), 0))
+	mn.IsLicensed = user.IsLicensed
+	mn.IsUnmessagable = core.IsUnmessageable(user)
+	mn.LastSeen = ptr.Ptr(evt.Timestamp)
 	err = mn.SetAll(ctx)
 	if err != nil {
 		log.
 			Err(err).
-			Str("long_name", evt.LongName).
-			Str("short_name", evt.ShortName).
+			Str("long_name", user.LongName).
+			Str("short_name", user.ShortName).
 			Msg("Failed to update node db")
 	}
 
-	if evt.LongName == "" {
+	if user.LongName == "" {
 		return
 	}
 
 	userInfo := &bridgev2.UserInfo{
-		Name:        &evt.LongName,
+		Name:        &user.LongName,
 		IsBot:       ptr.Ptr(false),
 		Identifiers: []string{},
 	}
@@ -375,69 +412,76 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *mesh.MeshNodeInfoEvent) {
 	}
 	log.
 		Debug().
-		Str("long_name", evt.LongName).
-		Str("short_name", evt.ShortName).
+		Str("long_name", user.LongName).
+		Str("short_name", user.ShortName).
 		Msg("Updated ghost info")
 }
 
-func (c *MeshtasticConnector) handleMapReport(evt *mesh.MeshMapReportEvent) {
+func (c *MeshtasticConnector) handleMapReport(evt *meshevent.MapReportReceived) {
+	from := meshid.FromCore(evt.From)
+	to := meshid.FromCore(evt.To)
+	mr := evt.MapReport
+	if mr == nil {
+		return
+	}
+	roleStr := mr.Role.String()
 	log := c.log.With().
 		Str("action", "handle_mesh_map_report").
-		Stringer("from_node_id", evt.From).
-		Stringer("to_node_id", evt.To).
+		Stringer("from_node_id", from).
+		Stringer("to_node_id", to).
 		Logger()
 	ctx := log.WithContext(context.Background())
-	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(evt.From), evt.To != c.GetBaseNodeID())
+	ghost, err := c.getRemoteGhost(ctx, meshid.MakeUserID(from), to != c.GetBaseNodeID())
 	if err != nil {
 		log.Err(err).Msg("Failed to get ghost")
 		return
 	}
 
-	if evt.To != meshid.BROADCAST_ID && evt.WantResponse {
-		c.sendNodeInfo(evt.To, evt.From, false)
+	if !evt.To.IsBroadcast() && evt.WantResponse {
+		c.sendNodeInfo(to, from, false)
 	}
 
-	mn, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, evt.From)
+	mn, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, from)
 	if mn == nil || err != nil {
 		mn = c.meshDB.MeshNodeInfo.New()
-		mn.NodeID = evt.From
+		mn.NodeID = from
 	}
 
 	needUpdate := false
 	if mn.UserID == "" {
-		mn.UserID = evt.From.String()
+		mn.UserID = from.String()
 	}
 
-	if mn.LongName != evt.LongName || mn.ShortName != evt.ShortName {
-		mn.LongName = evt.LongName
-		mn.ShortName = evt.ShortName
+	if mn.LongName != mr.LongName || mn.ShortName != mr.ShortName {
+		mn.LongName = mr.LongName
+		mn.ShortName = mr.ShortName
 		needUpdate = true
 	}
-	if mn.Role != evt.Role {
+	if mn.Role != roleStr {
 		// MapReports don't actually contain the IsMessageable flag, however the firmware
 		// forcibly updates this flag when changing to a different role, so it is relatively
 		// safe for us to do the same if we haven't received a NodeInfo packet yet
-		mn.IsUnmessagable = evt.IsUnmessagableRole
+		mn.IsUnmessagable = core.IsUnmessageableRole(mr.Role)
 	}
-	mn.Role = evt.Role
+	mn.Role = roleStr
 	mn.IsDirect = evt.IsNeighbor
 
-	mn.LastSeen = ptr.Ptr(time.Unix(int64(evt.Timestamp), 0))
+	mn.LastSeen = ptr.Ptr(evt.Timestamp)
 	err = mn.SetAll(ctx)
 	if err != nil {
 		log.
 			Err(err).
-			Str("long_name", evt.LongName).
-			Str("short_name", evt.ShortName).
+			Str("long_name", mr.LongName).
+			Str("short_name", mr.ShortName).
 			Msg("Failed to update node db")
 	}
 
-	if evt.LongName == "" {
+	if mr.LongName == "" {
 		return
 	}
 
 	userInfo := &bridgev2.UserInfo{
-		Name:        &evt.LongName,
+		Name:        &mr.LongName,
 		IsBot:       ptr.Ptr(false),
 		Identifiers: []string{},
 	}
@@ -447,8 +491,8 @@ func (c *MeshtasticConnector) handleMapReport(evt *mesh.MeshMapReportEvent) {
 	}
 	log.
 		Debug().
-		Str("long_name", evt.LongName).
-		Str("short_name", evt.ShortName).
+		Str("long_name", mr.LongName).
+		Str("short_name", mr.ShortName).
 		Msg("Updated ghost info")
 }
 
@@ -472,24 +516,13 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 		return
 	}
 
-	var pubKey []byte = nil
-	notifyUser := false
-	longName, shortName := fromNode.GetDefaultNodeNames()
+	notifyUser := nodeInfo == nil && fromNode != c.GetBaseNodeID()
 
-	if nodeInfo != nil {
-		longName, shortName, pubKey = nodeInfo.LongName, nodeInfo.ShortName, nodeInfo.PublicKey
-	} else {
-		notifyUser = true
+	var opts []node.SendOption
+	if wantResponse {
+		opts = append(opts, node.WithWantResponse())
 	}
-
-	if fromNode == c.GetBaseNodeID() {
-		notifyUser = false
-		longName, shortName = c.Config.LongName, c.Config.ShortName
-	}
-
-	err = c.meshClient.SendNodeInfo(fromNode, toNode, longName, shortName, wantResponse, pubKey)
-
-	if err != nil {
+	if _, err := c.meshBridge.SendNodeInfoAs(ctx, fromNode.Core(), toNode.Core(), opts...); err != nil {
 		log.Err(err).Msg("Failed to send node info")
 		return
 	}
@@ -500,28 +533,30 @@ func (c *MeshtasticConnector) sendNodeInfo(fromNode, toNode meshid.NodeID, wantR
 	}
 }
 
-func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
+func (c *MeshtasticClient) handleMeshReaction(evt *meshevent.TextMessage) {
+	from := meshid.FromCore(evt.From)
+	to := meshid.FromCore(evt.To)
 	meta, ok := c.UserLogin.Metadata.(*meshid.UserLoginMetadata)
-	if evt.IsDM && (!ok || meta.NodeID != evt.To) {
+	if evt.IsDM && (!ok || meta.NodeID != to) {
 		return
 	}
 
-	c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(evt.From), true)
+	c.main.getRemoteGhost(context.Background(), meshid.MakeUserID(from), true)
 
 	var portalKey networkid.PortalKey
 	var messIDSender = ""
 
 	if evt.IsDM {
-		portalKey = c.makeDMPortalKey(evt.From, evt.To)
-		messIDSender = evt.From.String()
+		portalKey = c.makeDMPortalKey(from, to)
+		messIDSender = from.String()
 		if evt.WantAck {
-			c.MeshClient.SendAck(evt.To, evt.From, evt.PacketId)
+			c.main.meshBridge.SendAckAs(context.Background(), to.Core(), from.Core(), evt.PacketID)
 		}
 	} else {
 		portalKey = c.makePortalKey(evt.ChannelName, evt.ChannelKey)
 		messIDSender = evt.ChannelName
 		if evt.WantAck {
-			c.MeshClient.SendAck(c.main.GetBaseNodeID(), evt.From, evt.PacketId)
+			c.main.meshBridge.SendAckAs(context.Background(), c.main.GetBaseNodeID().Core(), from.Core(), evt.PacketID)
 		}
 	}
 
@@ -542,68 +577,88 @@ func (c *MeshtasticClient) handleMeshReaction(evt *mesh.MeshReactionEvent) {
 		}
 	}
 
+	emoji := evt.Message
 	mess := simplevent.Reaction{
 		EventMeta: simplevent.EventMeta{
 			Type: bridgev2.RemoteEventReaction,
 			LogContext: func(c zerolog.Context) zerolog.Context {
-				c = c.Stringer("sender_id", evt.From)
-				c = c.Uint32("message_ts", uint32(evt.Timestamp))
+				c = c.Stringer("sender_id", from)
+				c = c.Time("message_ts", evt.Timestamp)
 				return c
 			},
 			PortalKey:    portalKey,
 			CreatePortal: false,
-			Sender:       c.makeEventSender(evt.From),
-			Timestamp:    time.Unix(int64(evt.Timestamp), 0),
+			Sender:       c.makeEventSender(from),
+			Timestamp:    evt.Timestamp,
 		},
-		EmojiID:       networkid.EmojiID(evt.Emoji),
-		Emoji:         evt.Emoji,
-		TargetMessage: meshid.MakeMessageID(messIDSender, evt.ReplyId),
+		EmojiID:       networkid.EmojiID(emoji),
+		Emoji:         emoji,
+		TargetMessage: meshid.MakeMessageID(messIDSender, evt.ReplyID),
 	}
 
-	c.main.meshDB.MeshNodeInfo.SetLastSeen(context.Background(), evt.From, evt.IsNeighbor)
+	c.main.meshDB.MeshNodeInfo.SetLastSeen(context.Background(), from, evt.IsNeighbor)
 
 	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)
 }
 
-func (c *MeshtasticConnector) handleMeshWaypoint(evt *mesh.MeshWaypointEvent) {
+func (c *MeshtasticConnector) handleMeshWaypoint(evt *meshevent.WaypointReceived) {
+	from := meshid.FromCore(evt.From)
+	wp := evt.Waypoint
+	if wp == nil {
+		return
+	}
+
+	lat := float32(0)
+	lon := float32(0)
+	if wp.LatitudeI != nil {
+		lat = float32(*wp.LatitudeI) * 1e-7
+	}
+	if wp.LongitudeI != nil {
+		lon = float32(*wp.LongitudeI) * 1e-7
+	}
+	icon := string(rune(wp.Icon))
+	expires := time.Unix(int64(wp.Expire), 0)
+	var lockedTo *meshid.NodeID
+	if wp.LockedTo != 0 && wp.LockedTo != uint32(meshid.BROADCAST_ID) && wp.LockedTo != uint32(meshid.BROADCAST_ID_NO_LORA) {
+		lockedTo = ptr.Ptr(meshid.NodeID(wp.LockedTo))
+	}
+
 	log := c.log.With().
 		Str("action", "waypoint_update").
-		Stringer("node_id", evt.From).
+		Stringer("node_id", from).
 		Logger()
 	log.Info().
-		Float32("latitude", evt.Latitude).
-		Float32("longitude", evt.Latitude).
-		Str("name", evt.Name).
-		Str("description", evt.Description).
-		Str("icon", evt.Icon).
-		//Stringer("locked_to", evt.LockedTo).
-		//Time("expires", *evt.Expires).
+		Float32("latitude", lat).
+		Float32("longitude", lon).
+		Str("name", wp.Name).
+		Str("description", wp.Description).
+		Str("icon", icon).
 		Msg("Waypoint received")
 
 	ctx := context.Background()
-	c.meshDB.MeshNodeInfo.SetLastSeen(ctx, evt.From, evt.IsNeighbor)
+	c.meshDB.MeshNodeInfo.SetLastSeen(ctx, from, evt.IsNeighbor)
 	if evt.IsDelete {
-		if err := c.meshDB.Waypoint.DeleteByID(ctx, evt.WaypointID); err != nil {
+		if err := c.meshDB.Waypoint.DeleteByID(ctx, wp.Id); err != nil {
 			log.Err(err).Msg("Error deleting waypoint")
 		}
-	} else if waypoint, err := c.meshDB.Waypoint.GetByWaypointID(ctx, evt.WaypointID); err != nil {
+	} else if waypoint, err := c.meshDB.Waypoint.GetByWaypointID(ctx, wp.Id); err != nil {
 		log.Err(err).Msg("Error checking for existing waypoint")
-	} else if waypoint != nil && waypoint.LockedTo != nil && *waypoint.LockedTo != evt.From {
+	} else if waypoint != nil && waypoint.LockedTo != nil && *waypoint.LockedTo != from {
 		log.Err(err).Msgf("This waypoint is locked to another node")
 	} else {
 		if waypoint == nil {
 			waypoint = c.meshDB.Waypoint.New()
-			waypoint.WaypointID = evt.WaypointID
+			waypoint.WaypointID = wp.Id
 		}
-		waypoint.Name = evt.Name
-		waypoint.Description = evt.Description
-		waypoint.Icon = evt.Icon
-		waypoint.Expires = evt.Expires
-		waypoint.Latitude = evt.Latitude
-		waypoint.Longitude = evt.Longitude
-		waypoint.UpdatedBy = evt.From
-		waypoint.UpdatedDate = ptr.Ptr(time.Unix(int64(evt.Timestamp), 0))
-		waypoint.LockedTo = evt.LockedTo
+		waypoint.Name = wp.Name
+		waypoint.Description = wp.Description
+		waypoint.Icon = icon
+		waypoint.Expires = &expires
+		waypoint.Latitude = lat
+		waypoint.Longitude = lon
+		waypoint.UpdatedBy = from
+		waypoint.UpdatedDate = ptr.Ptr(evt.Timestamp)
+		waypoint.LockedTo = lockedTo
 		if err := waypoint.SetAll(ctx); err != nil {
 			log.Err(err).Msg("Error saving waypoint")
 		}

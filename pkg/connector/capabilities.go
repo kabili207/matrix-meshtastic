@@ -3,7 +3,7 @@ package connector
 import (
 	"context"
 
-	pb "github.com/meshnet-gophers/meshtastic-go/meshtastic"
+	"github.com/kabili207/meshtastic-go/core"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/event"
 )
@@ -20,7 +20,7 @@ func (tc *MeshtasticClient) GetCapabilities(ctx context.Context, portal *bridgev
 
 		// Technically this is the max number of bytes and not characters, but it provides a good enough hint.
 		// The mesh layer will toss an error if the serialized load is too big to send
-		MaxTextLength:        int(pb.Constants_DATA_PAYLOAD_LEN) - 1,
+		MaxTextLength:        core.MaxDataPayload,
 		Delete:               event.CapLevelRejected,
 		Edit:                 event.CapLevelRejected,
 		Reaction:             event.CapLevelPartialSupport, // Supported by client apps, but not embedded devices

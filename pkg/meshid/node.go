@@ -4,9 +4,24 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+
+	"github.com/kabili207/meshtastic-go/core"
 )
 
 type NodeID uint32
+
+// BellCharacter is the ASCII bell, used to ping a channel or DM on Meshtastic.
+const BellCharacter string = "\x07"
+
+// Core converts this NodeID to the meshtastic-go core.NodeID type.
+func (n NodeID) Core() core.NodeID {
+	return core.NodeID(n)
+}
+
+// FromCore converts a meshtastic-go core.NodeID to the bridge NodeID type.
+func FromCore(c core.NodeID) NodeID {
+	return NodeID(c)
+}
 
 func (n NodeID) String() string {
 	return fmt.Sprintf("!%08x", uint32(n))

@@ -8,6 +8,10 @@ import (
 	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
+	"github.com/kabili207/meshtastic-go/core"
+	"github.com/kabili207/meshtastic-go/core/crypto"
+	"github.com/kabili207/meshtastic-go/core/lora"
+	"github.com/kabili207/meshtastic-go/device/node"
 	"go.mau.fi/util/ptr"
 	"go.mau.fi/util/variationselector"
 	"maunium.net/go/mautrix/bridgev2"
@@ -22,6 +26,19 @@ var _ bridgev2.ReactionHandlingNetworkAPI = (*MeshtasticClient)(nil)
 var _ bridgev2.TypingHandlingNetworkAPI = (*MeshtasticClient)(nil)
 var _ bridgev2.ReadReceiptHandlingNetworkAPI = (*MeshtasticClient)(nil)
 var _ bridgev2.MembershipHandlingNetworkAPI = (*MeshtasticClient)(nil)
+
+// sendOpts builds the common send options for an outgoing message: the target
+// channel and whether to use PKI encryption.
+func (c *MeshtasticClient) sendOpts(channel *core.Channel, usePKI bool) []node.SendOption {
+	opts := []node.SendOption{}
+	if channel != nil {
+		opts = append(opts, node.WithChannel(channel.GetName()))
+	}
+	if usePKI {
+		opts = append(opts, node.WithPKI())
+	}
+	return opts
+}
 
 func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (message *bridgev2.MatrixMessageResponse, err error) {
 
@@ -43,7 +60,7 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	}
 
 	fromNode := meshid.MXIDToNodeID(msg.Event.Sender)
-	channel := c.main.meshClient.GetPrimaryChannel()
+	channel := c.main.PrimaryChannel()
 	messIDSender := ""
 	targetNode := meshid.BROADCAST_ID
 	usePKI := false
@@ -83,18 +100,27 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	switch msg.Content.MsgType {
 	case event.MsgText, event.MsgNotice, event.MsgEmote:
 		content, _ := c.main.MsgConv.ToMeshtastic(ctx, msg.Event, msg.Content)
-		replyID := uint32(0)
+		opts := c.sendOpts(channel, usePKI)
 		if msg.ReplyTo != nil {
-			_, replyID, _ = meshid.ParseMessageID(msg.ReplyTo.ID)
+			if _, replyID, perr := meshid.ParseMessageID(msg.ReplyTo.ID); perr == nil && replyID != 0 {
+				opts = append(opts, node.WithReplyID(replyID))
+			}
 		}
-		packetId, err = c.MeshClient.SendMessage(fromNode, targetNode, channel, content, replyID, usePKI)
+		packetId, err = c.main.meshBridge.SendTextAs(ctx, fromNode.Core(), targetNode.Core(), content, opts...)
 	case event.MsgLocation:
 		geouri, err = meshid.ParseGeoURI(msg.Content.GeoURI)
 		if err != nil {
 			return nil, bridgev2.WrapErrorInStatus(err).WithErrorAsMessage().WithIsCertain(true).WithSendNotice(true)
 		}
 		ts := time.UnixMilli(msg.Event.Timestamp)
-		packetId, err = c.MeshClient.SendPosition(fromNode, targetNode, *geouri, &ts)
+		latI := int32(geouri.Latitude * 1e7)
+		lonI := int32(geouri.Longitude * 1e7)
+		var alt *int32
+		if geouri.Altitude != nil {
+			alt = ptr.Ptr(int32(*geouri.Altitude))
+		}
+		precision := lora.MetersToPrecisionBits(ptr.Val(geouri.Uncertainty))
+		packetId, err = c.main.meshBridge.SendPositionAs(ctx, fromNode.Core(), targetNode.Core(), latI, lonI, alt, precision, ts, c.sendOpts(channel, usePKI)...)
 
 	default:
 		return nil, bridgev2.ErrUnsupportedMessageType
@@ -187,7 +213,7 @@ func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID n
 
 	if len(nodeInfo.PrivateKey) == 0 {
 		c.log.Debug().Msg("Generating new keypair")
-		pub, priv, err := c.meshClient.GenerateKeyPair()
+		pub, priv, err := crypto.GenerateKeyPair()
 		if err != nil {
 			return err
 		}
@@ -201,7 +227,8 @@ func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID n
 		return err
 	}
 
-	return c.meshClient.SendNodeInfo(nodeID, meshid.BROADCAST_ID, longName, shortName, false, nodeInfo.PublicKey)
+	_, err = c.meshBridge.SendNodeInfoAs(ctx, nodeID.Core(), meshid.BROADCAST_ID.Core())
+	return err
 }
 
 func (c *MeshtasticConnector) updateGhostSenderID(mxid id.UserID) func(context.Context, *bridgev2.Ghost) bool {
@@ -257,7 +284,7 @@ func (c *MeshtasticConnector) getGhostPublicKey(ctx context.Context, nodeID mesh
 		return nodeInfo.PublicKey, nil
 	} else if nodeInfo.IsManaged {
 		c.log.Debug().Stringer("node_id", nodeID).Msg("Generating new keypair")
-		pub, priv, err := c.meshClient.GenerateKeyPair()
+		pub, priv, err := crypto.GenerateKeyPair()
 		if err != nil {
 			return nil, err
 		}
@@ -279,7 +306,7 @@ func (c *MeshtasticConnector) getGhostPrivateKey(ctx context.Context, nodeID mes
 		return nodeInfo.PrivateKey, nil
 	} else if nodeInfo.IsManaged {
 		c.log.Debug().Stringer("node_id", nodeID).Msg("Generating new keypair")
-		pub, priv, err := c.meshClient.GenerateKeyPair()
+		pub, priv, err := crypto.GenerateKeyPair()
 		if err != nil {
 			return nil, err
 		}
@@ -311,7 +338,7 @@ func (c *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridge
 		return nil, err
 	}
 
-	channel := c.main.meshClient.GetPrimaryChannel()
+	channel := c.main.PrimaryChannel()
 	targetNode := meshid.BROADCAST_ID
 	usePKI := false
 
@@ -335,7 +362,7 @@ func (c *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridge
 	if err != nil {
 		return nil, err
 	}
-	_, err = c.MeshClient.SendReaction(fromNode, targetNode, channel, packetID, pre.Emoji, usePKI)
+	_, err = c.main.meshBridge.SendReactionAs(ctx, fromNode.Core(), targetNode.Core(), packetID, pre.Emoji, c.sendOpts(channel, usePKI)...)
 	return &database.Reaction{}, err
 }
 

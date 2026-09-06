@@ -3,7 +3,6 @@ package msgconv
 import (
 	"context"
 
-	"github.com/kabili207/matrix-meshtastic/pkg/mesh"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
@@ -28,7 +27,7 @@ func (mc *MessageConverter) convertPill(displayname, mxid, eventID string, ctx f
 
 	if len(mxid) == 0 || mxid[0] != '@' {
 		if displayname == "@room" {
-			return mesh.BellCharacter
+			return meshid.BellCharacter
 		}
 		return format.DefaultPillConverter(displayname, mxid, eventID, ctx)
 	}

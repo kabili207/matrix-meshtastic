@@ -8,6 +8,7 @@ import (
 
 	"github.com/kabili207/matrix-meshtastic/pkg/connector/meshdb"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
+	"github.com/kabili207/meshtastic-go/core"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/matrix"
@@ -61,8 +62,8 @@ func (c *MeshtasticConnector) throttleDuration(d time.Duration) time.Duration {
 	return d
 }
 
-func (c *MeshtasticConnector) sendPeriodicHostInfo(_ context.Context) {
-	err := c.meshClient.SendHostMetrics(c.GetBaseNodeID(), meshid.BROADCAST_ID)
+func (c *MeshtasticConnector) sendPeriodicHostInfo(ctx context.Context) {
+	_, err := c.meshBridge.SendHostMetricsAs(ctx, c.GetBaseNodeID().Core(), meshid.BROADCAST_ID.Core())
 	if err != nil {
 		c.log.Err(err).Msg("Unable to send host metrics")
 		return
@@ -70,17 +71,17 @@ func (c *MeshtasticConnector) sendPeriodicHostInfo(_ context.Context) {
 }
 
 func (c *MeshtasticConnector) sendPeriodicTelemetry(ctx context.Context) {
-	c.meshClient.SendTelemetry(c.GetBaseNodeID(), meshid.BROADCAST_ID)
+	c.meshBridge.SendDeviceTelemetryAs(ctx, c.GetBaseNodeID().Core(), meshid.BROADCAST_ID.Core())
 
 	c.doForAllManagedGhosts(ctx, func(meta *meshdb.MeshNodeInfo) {
 		c.log.Info().
 			Str("long_name", meta.LongName).
 			Str("node_id", meta.UserID).
 			Msg("Broadcasting periodic telemetry")
-		c.meshClient.SendTelemetry(meta.NodeID, meshid.BROADCAST_ID)
+		c.meshBridge.SendDeviceTelemetryAs(ctx, meta.NodeID.Core(), meshid.BROADCAST_ID.Core())
 	})
 	// TODO: Offset things a tad so we don't overload the mesh
-	c.meshClient.SendHostMetrics(c.GetBaseNodeID(), meshid.BROADCAST_ID)
+	c.meshBridge.SendHostMetricsAs(ctx, c.GetBaseNodeID().Core(), meshid.BROADCAST_ID.Core())
 }
 
 func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
@@ -95,25 +96,24 @@ func (c *MeshtasticConnector) sendPeriodicNeighborInfo(ctx context.Context) {
 		return directNeighbors[i].LastSeen.After(*directNeighbors[j].LastSeen)
 	})
 
-	nodeIDs := []meshid.NodeID{c.GetBaseNodeID()}
+	nodeIDs := []core.NodeID{c.GetBaseNodeID().Core()}
 	maxAge := time.Now().UTC().Add(-2 * rateNeighborInfo)
 
 	for _, g := range directNeighbors {
 		if g.LastSeen.After(maxAge) {
-			nodeIDs = append(nodeIDs, g.NodeID)
+			nodeIDs = append(nodeIDs, g.NodeID.Core())
 		} else {
 			break
 		}
 	}
 
-	if err := c.meshClient.SendNeighborInfo(c.GetBaseNodeID(), nodeIDs, uint32(rateNeighborInfo.Seconds())); err != nil {
+	if _, err := c.meshBridge.SendNeighborInfoAs(ctx, c.GetBaseNodeID().Core(), nodeIDs, uint32(rateNeighborInfo.Seconds())); err != nil {
 		c.log.Err(err).Msg("Failed to send periodic neighbor info")
 	}
 }
 
 func (c *MeshtasticConnector) sendPeriodicNodeInfo(ctx context.Context) {
-	pubKey, _ := c.getGhostPublicKey(ctx, c.GetBaseNodeID())
-	c.meshClient.SendNodeInfo(c.GetBaseNodeID(), meshid.BROADCAST_ID, c.Config.LongName, c.Config.ShortName, false, pubKey)
+	c.meshBridge.SendNodeInfoAs(ctx, c.GetBaseNodeID().Core(), meshid.BROADCAST_ID.Core())
 
 	c.doForAllManagedGhosts(ctx, func(meta *meshdb.MeshNodeInfo) {
 		log := c.log.Info().
@@ -121,7 +121,7 @@ func (c *MeshtasticConnector) sendPeriodicNodeInfo(ctx context.Context) {
 			Str("node_id", meta.UserID)
 
 		log.Msg("Broadcasting periodic node info")
-		if err := c.meshClient.SendNodeInfo(meta.NodeID, meshid.BROADCAST_ID, meta.LongName, meta.ShortName, false, meta.PublicKey); err != nil {
+		if _, err := c.meshBridge.SendNodeInfoAs(ctx, meta.NodeID.Core(), meshid.BROADCAST_ID.Core()); err != nil {
 			log.Err(err).Msg("Broadcasting node info failed")
 		}
 	})

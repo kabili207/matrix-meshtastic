@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
+	"github.com/kabili207/meshtastic-go/device/node"
 	"maunium.net/go/mautrix/bridgev2/commands"
 	"maunium.net/go/mautrix/bridgev2/matrix"
 	"maunium.net/go/mautrix/id"
@@ -86,7 +87,7 @@ func fnJoinChannel(ce *commands.Event) {
 	} else if chanDef, err := meshid.NewChannelDef(name, &key); err != nil {
 		ce.Log.Error().Msg("Failed to create channel definition")
 		ce.Reply("Failed to join channel: %v", err)
-	} else if err := client.MeshClient.AddChannelDef(chanDef); err != nil {
+	} else if err := client.main.meshBridge.AddChannel(name, chanDef.GetKeyString()); err != nil {
 		ce.Log.Err(err).Msg("Failed to add channel to client")
 		ce.Reply("Failed to join channel: %v", err)
 	} else if err := client.joinChannel(name, chanDef.GetKeyString()); err != nil {
@@ -233,29 +234,24 @@ func fnTraceroute(ce *commands.Event) {
 	}
 
 	// Get the channel - use the portal's channel if in a portal, otherwise use the primary channel
-	var channel meshid.ChannelDef
+	var channelName string
 	portal := ce.Portal
 	if portal != nil {
-		channelID, channelKey, err := meshid.ParsePortalID(portal.ID)
+		channelID, _, err := meshid.ParsePortalID(portal.ID)
 		if err != nil {
 			ce.Reply("Failed to get channel info: %v", err)
 			return
 		}
-		channel, err = meshid.NewChannelDef(channelID, &channelKey)
-		if err != nil {
-			ce.Reply("Failed to create channel definition: %v", err)
-			return
-		}
+		channelName = channelID
+	} else if pc := conn.PrimaryChannel(); pc != nil {
+		channelName = pc.GetName()
 	} else {
-		channel = conn.meshClient.GetPrimaryChannel()
-		if channel == nil {
-			ce.Reply("No primary channel configured")
-			return
-		}
+		ce.Reply("No primary channel configured")
+		return
 	}
 
 	// Send the traceroute request
-	packetID, err := conn.meshClient.SendTraceroute(fromNode, targetNode, channel)
+	packetID, err := conn.meshBridge.RequestTracerouteAs(ce.Ctx, fromNode.Core(), targetNode.Core(), node.WithChannel(channelName))
 	if err != nil {
 		ce.Log.Err(err).Msg("Failed to send traceroute")
 		ce.Reply("Failed to send traceroute: %v", err)
@@ -269,7 +265,7 @@ func fnTraceroute(ce *commands.Event) {
 		TargetNode: targetNode,
 		RoomID:     ce.RoomID,
 		Timestamp:  time.Now(),
-		Channel:    channel,
+		Channel:    channelName,
 	}
 	conn.tracerouteTracker.AddRequest(req)
 
