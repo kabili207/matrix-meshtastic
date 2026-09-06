@@ -49,7 +49,15 @@ func (c *MeshtasticConnector) ensureIdentity(ctx context.Context) error {
 		Str("public_key", base64.StdEncoding.EncodeToString(pub)).
 		Msg("Bridge mesh identity")
 
-	return c.migrateStaleIdentities(ctx)
+	if err := c.migrateStaleIdentities(ctx); err != nil {
+		return err
+	}
+	// Rows created by the migration before this stamp existed have no last-seen
+	// time, which keeps them out of the periodic NodeInfo broadcast.
+	if err := c.meshDB.MeshNodeInfo.BackfillManagedLastSeen(ctx); err != nil {
+		c.log.Err(err).Msg("Failed to backfill managed node activity")
+	}
+	return nil
 }
 
 // NodeIDForMXID returns the mesh node ID of a Matrix user. It is a pure function of

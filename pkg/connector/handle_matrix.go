@@ -214,6 +214,9 @@ func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID n
 		nodeInfo.UserID = nodeID.String()
 		nodeInfo.IsDirect = true
 		nodeInfo.IsManaged = true
+		// Counts as activity: the periodic broadcasts skip idle managed nodes, and a
+		// node that has never broadcast a signed NodeInfo is never marked verified.
+		nodeInfo.LastSeen = ptr.Ptr(time.Now().UTC())
 	}
 
 	if len(nodeInfo.PrivateKey) == 0 {
