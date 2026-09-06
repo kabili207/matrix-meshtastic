@@ -1,4 +1,4 @@
--- v0 -> v3: Latest revision
+-- v0 -> v4: Latest revision
 
 CREATE TABLE mesh_node_info (
     -- 0 = unset, 1 = non-lora broadcast, 4294967295 = broadcast
@@ -23,6 +23,15 @@ CREATE TABLE mesh_node_info (
 
     PRIMARY KEY (id),
     CONSTRAINT mesh_node_info_user_id UNIQUE (user_id)
+);
+
+-- Single row holding the root secret every managed identity is derived from.
+CREATE TABLE bridge_identity (
+    id          INTEGER NOT NULL CHECK (id = 1),
+    private_key BYTEA NOT NULL,
+    created     BIGINT NOT NULL,
+
+    PRIMARY KEY (id)
 );
 
 CREATE TABLE mesh_waypoints (

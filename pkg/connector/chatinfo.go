@@ -41,7 +41,7 @@ func (mc *MeshtasticClient) wrapDMInfo(synthNode, remoteNode meshid.NodeID) *bri
 	return info
 }
 
-func (c MeshtasticConnector) setDMNames(info *bridgev2.ChatInfo, ghost *bridgev2.Ghost) {
+func (c *MeshtasticConnector) setDMNames(info *bridgev2.ChatInfo, ghost *bridgev2.Ghost) {
 	if ghost.Name != "" {
 		info.Name = &ghost.Name
 		if nodeID, err := meshid.ParseUserID(ghost.ID); err != nil {
@@ -55,7 +55,7 @@ func (c MeshtasticConnector) setDMNames(info *bridgev2.ChatInfo, ghost *bridgev2
 func (mc *MeshtasticClient) wrapChatInfo(user *bridgev2.User, channelID, channelKey string) *bridgev2.ChatInfo {
 	members := map[networkid.UserID]bridgev2.ChatMember{}
 	if user != nil {
-		nodeID := meshid.MXIDToNodeID(user.MXID)
+		nodeID := mc.main.NodeIDForMXID(user.MXID)
 		members[meshid.MakeUserID(nodeID)] = bridgev2.ChatMember{
 			EventSender: bridgev2.EventSender{
 				Sender:      meshid.MakeUserID(nodeID),

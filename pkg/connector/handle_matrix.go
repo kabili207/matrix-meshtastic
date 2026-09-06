@@ -9,7 +9,6 @@ import (
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"github.com/kabili207/meshtastic-go/core"
-	"github.com/kabili207/meshtastic-go/core/crypto"
 	"github.com/kabili207/meshtastic-go/core/lora"
 	"github.com/kabili207/meshtastic-go/device/node"
 	"go.mau.fi/util/ptr"
@@ -59,7 +58,7 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 		return nil, nil
 	}
 
-	fromNode := meshid.MXIDToNodeID(msg.Event.Sender)
+	fromNode := c.main.NodeIDForMXID(msg.Event.Sender)
 	// Left nil for DMs so the bridge picks the channel the peer was last heard on.
 	var channel *core.Channel
 	messIDSender := ""
@@ -171,7 +170,7 @@ func (c *MeshtasticClient) postMessageSave(mxid id.UserID, roomId id.RoomID) fun
 		}
 
 		if !ghost.NameSet {
-			nodeID := meshid.MXIDToNodeID(mxid)
+			nodeID := c.main.NodeIDForMXID(mxid)
 			longName, shortName := nodeID.GetDefaultNodeNames()
 			if strings.TrimSpace(u.Displayname) != "" {
 				longName = TruncateString(strings.TrimSpace(u.Displayname), core.MaxLongName)
@@ -218,10 +217,12 @@ func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID n
 	}
 
 	if len(nodeInfo.PrivateKey) == 0 {
-		c.log.Debug().Msg("Generating new keypair")
-		pub, priv, err := crypto.GenerateKeyPair()
+		derived, pub, priv, err := meshid.DeriveUserIdentity(c.rootKey, mxid)
 		if err != nil {
 			return err
+		}
+		if derived != nodeID {
+			return fmt.Errorf("node %s is not the derived identity of %s (%s)", nodeID, mxid, derived)
 		}
 		nodeInfo.PublicKey = pub
 		nodeInfo.PrivateKey = priv
@@ -233,6 +234,10 @@ func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID n
 		return err
 	}
 
+	// Nil during the startup identity migration, which runs before the mesh starts.
+	if c.meshBridge == nil {
+		return nil
+	}
 	_, err = c.meshBridge.SendNodeInfoAs(ctx, nodeID.Core(), meshid.BROADCAST_ID.Core())
 	return err
 }
@@ -284,51 +289,45 @@ func (c *MeshtasticConnector) updateDMPortalInfo(ctx context.Context, ghost *bri
 }
 
 func (c *MeshtasticConnector) getGhostPublicKey(ctx context.Context, nodeID meshid.NodeID) ([]byte, error) {
-	if nodeInfo, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID); err != nil {
+	if nodeID == c.GetBaseNodeID() {
+		pub, _, err := c.bridgeKeys()
+		return pub, err
+	}
+	nodeInfo, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID)
+	if err != nil {
 		return nil, err
-	} else if len(nodeInfo.PublicKey) > 0 {
+	}
+	if nodeInfo != nil && len(nodeInfo.PublicKey) > 0 {
 		return nodeInfo.PublicKey, nil
-	} else if nodeInfo.IsManaged {
-		c.log.Debug().Stringer("node_id", nodeID).Msg("Generating new keypair")
-		pub, priv, err := crypto.GenerateKeyPair()
-		if err != nil {
-			return nil, err
-		}
-		nodeInfo.PublicKey = pub
-		nodeInfo.PrivateKey = priv
-		err = nodeInfo.SetAll(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return pub, nil
+	}
+	if nodeInfo != nil && nodeInfo.IsManaged {
+		pub, _, err := c.managedIdentityKeys(ctx, nodeInfo)
+		return pub, err
 	}
 	return nil, errors.New("no public key found")
 }
 
 func (c *MeshtasticConnector) getGhostPrivateKey(ctx context.Context, nodeID meshid.NodeID) ([]byte, error) {
-	if nodeInfo, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID); err != nil {
+	if nodeID == c.GetBaseNodeID() {
+		_, priv, err := c.bridgeKeys()
+		return priv, err
+	}
+	nodeInfo, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID)
+	if err != nil {
 		return nil, err
-	} else if len(nodeInfo.PrivateKey) > 0 {
+	}
+	if nodeInfo != nil && len(nodeInfo.PrivateKey) > 0 {
 		return nodeInfo.PrivateKey, nil
-	} else if nodeInfo.IsManaged {
-		c.log.Debug().Stringer("node_id", nodeID).Msg("Generating new keypair")
-		pub, priv, err := crypto.GenerateKeyPair()
-		if err != nil {
-			return nil, err
-		}
-		nodeInfo.PublicKey = pub
-		nodeInfo.PrivateKey = priv
-		err = nodeInfo.SetAll(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return pub, nil
+	}
+	if nodeInfo != nil && nodeInfo.IsManaged {
+		_, priv, err := c.managedIdentityKeys(ctx, nodeInfo)
+		return priv, err
 	}
 	return nil, errors.New("no private key found")
 }
 
 func (c *MeshtasticClient) PreHandleMatrixReaction(ctx context.Context, msg *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {
-	fromNode := meshid.MXIDToNodeID(msg.Event.Sender)
+	fromNode := c.main.NodeIDForMXID(msg.Event.Sender)
 	return bridgev2.MatrixReactionPreResponse{
 		SenderID: meshid.MakeUserID(fromNode),
 		EmojiID:  networkid.EmojiID(msg.Content.RelatesTo.Key),
@@ -376,7 +375,7 @@ func (c *MeshtasticClient) UpdateLastSeenDate(ctx context.Context, sender id.Use
 	if c.bridge.IsGhostMXID(sender) {
 		return
 	}
-	nodeID := meshid.MXIDToNodeID(sender)
+	nodeID := c.main.NodeIDForMXID(sender)
 	uid := meshid.MakeUserID(nodeID)
 	_, err := c.bridge.GetGhostByID(ctx, uid)
 	if err != nil {

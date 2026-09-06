@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
-	"github.com/kabili207/meshtastic-go/core/crypto"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
@@ -26,7 +25,7 @@ var _ bridgev2.NetworkAPI = (*MeshtasticClient)(nil)
 var _ bridgev2.IdentifierResolvingNetworkAPI = (*MeshtasticClient)(nil)
 
 func (mc *MeshtasticClient) Connect(ctx context.Context) {
-	nodeID := meshid.MXIDToNodeID(mc.UserLogin.UserMXID)
+	nodeID := mc.main.NodeIDForMXID(mc.UserLogin.UserMXID)
 	nodeInfo, err := mc.main.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID)
 	if err != nil {
 		mc.UserLogin.BridgeState.Send(status.BridgeState{
@@ -51,27 +50,11 @@ func (mc *MeshtasticClient) Connect(ctx context.Context) {
 		return
 	}
 	if len(nodeInfo.PrivateKey) == 0 {
-		mc.log.Debug().Msg("Generating new keypair")
-		pub, priv, err := crypto.GenerateKeyPair()
-		if err != nil {
+		if _, _, err := mc.main.managedIdentityKeys(ctx, nodeInfo); err != nil {
 			mc.UserLogin.BridgeState.Send(status.BridgeState{
 				StateEvent: status.StateBadCredentials,
-				Error:      "meshtastic-key-pair-generation-error",
-				Message:    "Unable to generate key pair",
-				Info: map[string]any{
-					"go_error": err.Error(),
-				},
-			})
-			return
-		}
-		nodeInfo.PublicKey = pub
-		nodeInfo.PrivateKey = priv
-
-		if err := nodeInfo.SetAll(ctx); err != nil {
-			mc.UserLogin.BridgeState.Send(status.BridgeState{
-				StateEvent: status.StateBadCredentials,
-				Error:      "meshtastic-node-info-save-error",
-				Message:    "Unable to save updated node info",
+				Error:      "meshtastic-identity-error",
+				Message:    "Unable to derive the node's key pair",
 				Info: map[string]any{
 					"go_error": err.Error(),
 				},
@@ -168,7 +151,7 @@ func (c *MeshtasticClient) ResolveIdentifier(ctx context.Context, identifier str
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ghost: %w", err)
 	}
-	myNode := meshid.MXIDToNodeID(c.UserLogin.UserMXID)
+	myNode := c.main.NodeIDForMXID(c.UserLogin.UserMXID)
 
 	return &bridgev2.ResolveIdentifierResponse{
 		Ghost:  ghost,

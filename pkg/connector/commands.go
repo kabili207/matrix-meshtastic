@@ -112,7 +112,7 @@ func fnUpdateNames(ce *commands.Event) {
 	_, _ = longName, shortName
 
 	userMXID := ce.User.MXID
-	nodeID := meshid.MXIDToNodeID(userMXID)
+	nodeID := ce.Bridge.Network.(*MeshtasticConnector).NodeIDForMXID(userMXID)
 
 	if len([]byte(longName)) > core.MaxLongName {
 		ce.Reply("Long name must be at most %d bytes", core.MaxLongName)
@@ -132,7 +132,7 @@ func fnUpdateNames(ce *commands.Event) {
 func fnNodeInfo(ce *commands.Event) {
 
 	userMXID := ce.User.MXID
-	fromNode := meshid.MXIDToNodeID(userMXID)
+	fromNode := ce.Bridge.Network.(*MeshtasticConnector).NodeIDForMXID(userMXID)
 	isMeshNode := false
 
 	if len(ce.Args) > 0 {
@@ -152,7 +152,7 @@ func fnNodeInfo(ce *commands.Event) {
 		}
 	}
 
-	nodeID := meshid.MXIDToNodeID(userMXID)
+	nodeID := ce.Bridge.Network.(*MeshtasticConnector).NodeIDForMXID(userMXID)
 	if gid, ok := ce.Bridge.Matrix.ParseGhostMXID(userMXID); ok {
 		nodeID, _ = meshid.ParseUserID(gid)
 		isMeshNode = true
@@ -193,7 +193,7 @@ func fnTraceroute(ce *commands.Event) {
 	}
 
 	userMXID := ce.User.MXID
-	fromNode := meshid.MXIDToNodeID(userMXID)
+	fromNode := ce.Bridge.Network.(*MeshtasticConnector).NodeIDForMXID(userMXID)
 
 	// Parse the target node ID (same format as info command)
 	var targetNode meshid.NodeID

@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/connector/meshdb"
@@ -22,6 +23,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/commands"
 	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/id"
 )
 
 type MeshtasticConnector struct {
@@ -38,6 +40,11 @@ type MeshtasticConnector struct {
 	bgTaskCanceller   context.CancelFunc
 	tracerouteTracker *TracerouteTracker
 	prevConnected     bool
+
+	// rootKey is the secret every managed identity derives from; see identity.go.
+	rootKey       []byte
+	identityMu    sync.RWMutex
+	identityCache map[id.UserID]meshid.NodeID
 }
 
 // PrimaryChannel returns the configured primary channel for outbound sends.
@@ -60,6 +67,8 @@ func (c *MeshtasticConnector) Init(bridge *bridgev2.Bridge) {
 	c.meshDB = meshdb.New(bridge.DB.Database, bridge.Log.With().Str("db_section", "meshtastic").Logger())
 	c.bridge = bridge
 	c.MsgConv = msgconv.New(bridge, c.meshDB)
+	c.MsgConv.ResolveNodeID = c.NodeIDForMXID
+	c.identityCache = map[id.UserID]meshid.NodeID{}
 	c.log = c.bridge.Log
 	if c.managedNodeCache == nil {
 		c.managedNodeCache = map[meshid.NodeID]bool{}
@@ -92,10 +101,8 @@ func (c *MeshtasticConnector) GetNetworkID() string {
 	return c.GetName().NetworkID
 }
 
+// GetBaseNodeID returns the bridge's own node ID, fixed by ensureIdentity at start.
 func (c *MeshtasticConnector) GetBaseNodeID() meshid.NodeID {
-	if c.baseNodeID == 0 {
-		c.baseNodeID = meshid.MXIDToNodeID(c.bridge.Bot.GetMXID())
-	}
 	return c.baseNodeID
 }
 
@@ -157,7 +164,14 @@ func (tc *MeshtasticConnector) GetDBMetaTypes() database.MetaTypes {
 func (c *MeshtasticConnector) Start(ctx context.Context) error {
 	c.log.Info().Msg("MeshtasticConnector Start called")
 
-	c.meshDB.Upgrade(ctx)
+	if err := c.meshDB.Upgrade(ctx); err != nil {
+		c.log.Err(err).Msg("Failed to upgrade mesh database")
+		return err
+	}
+	if err := c.ensureIdentity(ctx); err != nil {
+		c.log.Err(err).Msg("Failed to establish bridge identity")
+		return err
+	}
 
 	// Let zerolog's level govern library output. MQTT stays at Info because paho
 	// is very noisy at debug.

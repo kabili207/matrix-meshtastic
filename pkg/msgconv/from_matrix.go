@@ -33,7 +33,7 @@ func (mc *MessageConverter) convertPill(displayname, mxid, eventID string, ctx f
 	}
 	idUser := id.UserID(mxid)
 
-	nodeID := meshid.MXIDToNodeID(idUser)
+	nodeID := mc.ResolveNodeID(idUser)
 	if gid, ok := mc.Bridge.Matrix.ParseGhostMXID(idUser); ok {
 		nodeID, _ = meshid.ParseUserID(gid)
 	}

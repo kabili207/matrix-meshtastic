@@ -35,7 +35,10 @@ func ParseNodeID(nodeID string) (NodeID, error) {
 	return NodeID(uint32(packet64)), nil
 }
 
-func MXIDToNodeID(mxid id.UserID) NodeID {
+// LegacyMXIDToNodeID is the pre-2.8 node ID scheme, a hash of the Matrix ID. It
+// exists only so the startup migration can find identities created under it.
+// Live code derives IDs from keys; see DeriveUserIdentity.
+func LegacyMXIDToNodeID(mxid id.UserID) NodeID {
 	mxidBytes := []byte(mxid.String())
 	return NodeID(crc32.ChecksumIEEE(mxidBytes))
 }

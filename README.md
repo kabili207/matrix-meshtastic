@@ -47,7 +47,9 @@ DM users on Meshtastic or bridge new channels unless you login.
 
 To do so, send a direct message to the Meshtastic bot user (typically `@meshtastic_bot:example.com`)
 and use the `login` command. You will be prompted for the long and short names you wish to use
-on the Meshtastic network. Your Meshtastic Node ID will be generated based on your matrix user ID.
+on the Meshtastic network. Your Meshtastic node ID is derived from a key pair the bridge creates for you,
+as firmware 2.8 requires. The key pair itself comes from the bridge's root key and your Matrix user ID, so
+your node ID is stable for as long as the bridge keeps its database.
 
 #### Joining a channel
 Channels on Meshtastic are based on the name of the channel and a pre-shared key (PSK). To join a

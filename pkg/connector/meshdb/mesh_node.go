@@ -23,6 +23,9 @@ const (
 
 	setMeshNodeInfoNamesQuery = "UPDATE mesh_node_info SET long_name=$1, short_name=$2 WHERE id = $3"
 
+	// An update rather than a delete: mesh_waypoints cascades on delete from this table.
+	retireManagedNodeQuery = "UPDATE mesh_node_info SET is_managed=false, public_key=NULL, private_key=NULL WHERE id=$1 AND is_managed=true"
+
 	setMeshNodeInfoLastSeen = `
 		INSERT INTO mesh_node_info (id, user_id, is_direct, last_seen)
 		VALUES ($1, $2, $3, $4)
@@ -120,6 +123,12 @@ func (m *MeshNodeInfo) sqlVariables() []any {
 
 func (m *MeshNodeInfo) SetAll(ctx context.Context) error {
 	return m.qh.Exec(ctx, setMeshNodeInfoQuery, m.sqlVariables()...)
+}
+
+// RetireManagedNode turns a managed identity into a plain remote-node record,
+// keeping the row (and anything referencing it) but dropping its keys.
+func (q *MeshNodeInfoQuery) RetireManagedNode(ctx context.Context, nodeID meshid.NodeID) error {
+	return q.Exec(ctx, retireManagedNodeQuery, nodeID)
 }
 
 func (q *MeshNodeInfoQuery) SetNames(ctx context.Context, nodeID meshid.NodeID, longName, shortName string) error {

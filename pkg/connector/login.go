@@ -108,44 +108,14 @@ func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string
 		return nil, fmt.Errorf("long and short names are required")
 	}
 
-	userNodeId := meshid.MXIDToNodeID(sl.User.MXID)
-
-	if err := sl.Main.UpdateGhostMeshNames(ctx, meshid.MakeUserID(userNodeId), sl.User.MXID, long_name, short_name); err != nil {
-		sl.Log.Err(err).Msg("Failed to create user login entry")
-		return nil, fmt.Errorf("failed to create user login: %w", err)
-	}
-
-	loginID := meshid.MakeUserLoginID(userNodeId)
-
-	// Create the UserLogin entry in the bridge database
-	ul, err := sl.User.NewLogin(ctx, &database.UserLogin{
-		ID:         loginID,
-		RemoteName: short_name,
-		RemoteProfile: status.RemoteProfile{
-			Name:     long_name,
-			Username: userNodeId.String(),
-		},
-		Metadata: &meshid.UserLoginMetadata{
-			NodeID: userNodeId,
-		},
-	}, &bridgev2.NewLoginParams{
-		DeleteOnConflict: false, // Or true if you want relogins to replace old ones
-	})
+	ul, err := sl.Main.createLogin(ctx, sl.User, long_name, short_name)
 	if err != nil {
 		sl.Log.Err(err).Msg("Failed to create user login entry")
 		return nil, fmt.Errorf("failed to create user login: %w", err)
 	}
+	userNodeId := ul.Metadata.(*meshid.UserLoginMetadata).NodeID
 
 	sl.Log.Info().Str("login_id", string(ul.ID)).Msg("Successfully 'logged in' and created user login")
-
-	// Load the user login into memory (important!)
-	err = sl.Main.LoadUserLogin(ctx, ul)
-	if err != nil {
-		// We should never see an error here as LoadUserLogin returns a nil value
-		// If we do then something has gone catastrophically wrong
-		sl.Log.Err(err).Msg("Failed to load user login after creation (this shouldn't happen!)")
-		return nil, err
-	}
 
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeComplete,
@@ -156,6 +126,36 @@ func (sl *MeshtasticLogin) SubmitUserInput(ctx context.Context, input map[string
 			UserLogin:   ul, // Pass the loaded UserLogin back
 		},
 	}, nil
+}
+
+// createLogin creates the mesh identity and the bridge login for a Matrix user.
+// Shared by the login flow and the identity migration.
+func (c *MeshtasticConnector) createLogin(ctx context.Context, user *bridgev2.User, longName, shortName string) (*bridgev2.UserLogin, error) {
+	nodeID := c.NodeIDForMXID(user.MXID)
+	if nodeID == 0 {
+		return nil, fmt.Errorf("no identity could be derived for %s", user.MXID)
+	}
+	if err := c.UpdateGhostMeshNames(ctx, meshid.MakeUserID(nodeID), user.MXID, longName, shortName); err != nil {
+		return nil, err
+	}
+	ul, err := user.NewLogin(ctx, &database.UserLogin{
+		ID:         meshid.MakeUserLoginID(nodeID),
+		RemoteName: shortName,
+		RemoteProfile: status.RemoteProfile{
+			Name:     longName,
+			Username: nodeID.String(),
+		},
+		Metadata: &meshid.UserLoginMetadata{NodeID: nodeID},
+	}, &bridgev2.NewLoginParams{DeleteOnConflict: false})
+	if err != nil {
+		return nil, err
+	}
+	// NewLogin loads the login through LoadUserLogin; keep the explicit call so a
+	// reused login also gets a fresh client.
+	if err := c.LoadUserLogin(ctx, ul); err != nil {
+		return nil, err
+	}
+	return ul, nil
 }
 
 // Cancel implements bridgev2.LoginProcessUserInput
