@@ -77,5 +77,35 @@ bridge:
         "@admin:example.com": admin
 ```
 
+### Backing up the identity key
+
+Every node ID the bridge uses, its own included, is derived from one 32-byte root key stored in the
+`bridge_identity` table. Regular database backups cover it, but it is worth keeping a copy of the key
+on its own: with the key alone, a bridge rebuilt on an empty database gives every user the same node
+ID they had before, so the rest of the mesh never sees them as new nodes.
+
+Export it as hex:
+
+```sql
+-- SQLite
+SELECT hex(private_key) FROM bridge_identity;
+-- PostgreSQL
+SELECT encode(private_key, 'hex') FROM bridge_identity;
+```
+
+To restore onto an empty database: start the bridge once so it creates the schema (it will generate a
+temporary key), stop it, replace the key, and start it again. Do this before anyone logs in, since
+logins created under the temporary key would be renumbered on the next start.
+
+```sql
+-- SQLite
+UPDATE bridge_identity SET private_key = X'<hex>' WHERE id = 1;
+-- PostgreSQL
+UPDATE bridge_identity SET private_key = decode('<hex>', 'hex') WHERE id = 1;
+```
+
+The key is the bridge's whole identity. Anyone holding it can impersonate the bridge and every
+user on the mesh, so store the copy the same way you would a private SSH key.
+
 ### Features & Roadmap
 [ROADMAP.md](ROADMAP.md) contains a general overview of what is supported by the bridge.
