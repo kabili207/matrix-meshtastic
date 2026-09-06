@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kabili207/matrix-meshtastic/pkg/connector/meshdb"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"github.com/kabili207/meshtastic-go/core"
 	meshevent "github.com/kabili207/meshtastic-go/device/event"
@@ -24,7 +25,9 @@ import (
 )
 
 var (
-	shortUserRegex = regexp.MustCompile(`(?:\b|@\s?)([a-f0-9]{4})\b`)
+	// The Meshtastic apps write mentions as "@!<node id>". The bare four-hex short
+	// form is the bridge's older convention, kept so existing habits still resolve.
+	mentionRegex = regexp.MustCompile(`@!([0-9a-fA-F]{8})\b|(?:\b|@\s?)([a-f0-9]{4})\b`)
 )
 
 // Handles events emitted by the mesh bridge.
@@ -209,20 +212,26 @@ func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *brid
 	mentions := &event.Mentions{}
 	seenUsers := make(map[id.UserID]struct{})
 
-	matches := shortUserRegex.FindAllStringSubmatchIndex(mess, -1)
+	matches := mentionRegex.FindAllStringSubmatchIndex(mess, -1)
 	if matches != nil {
 		var bodyBuilder, formattedBuilder strings.Builder
 		lastIndex := 0
 
 		for _, match := range matches {
-			start, end := match[0], match[1]         // full match
-			userStart, userEnd := match[2], match[3] // capture group
+			start, end := match[0], match[1] // full match
 
 			bodyBuilder.WriteString(mess[lastIndex:start])
 			formattedBuilder.WriteString(data.Message[lastIndex:start])
 
-			potential := mess[userStart:userEnd]
-			if ni, _ := c.main.meshDB.MeshNodeInfo.GetByShortUserID(ctx, potential); ni != nil {
+			var ni *meshdb.MeshNodeInfo
+			if match[2] >= 0 {
+				if nodeID, err := meshid.ParseNodeID("!" + strings.ToLower(mess[match[2]:match[3]])); err == nil {
+					ni, _ = c.main.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID)
+				}
+			} else {
+				ni, _ = c.main.meshDB.MeshNodeInfo.GetByShortUserID(ctx, mess[match[4]:match[5]])
+			}
+			if ni != nil {
 				nodeUserID := meshid.MakeUserID(ni.NodeID)
 				ghost, err := c.main.getRemoteGhost(ctx, nodeUserID, true)
 				if err != nil {

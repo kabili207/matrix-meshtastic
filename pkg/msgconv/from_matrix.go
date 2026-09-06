@@ -38,7 +38,6 @@ func (mc *MessageConverter) convertPill(displayname, mxid, eventID string, ctx f
 		nodeID, _ = meshid.ParseUserID(gid)
 	}
 
-	nodeStr := nodeID.String()
-	shortName := nodeStr[len(nodeStr)-4:]
-	return shortName
+	// The Meshtastic apps render "@!<node id>" in message text as a mention.
+	return "@" + nodeID.String()
 }
