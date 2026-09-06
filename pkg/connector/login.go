@@ -2,12 +2,12 @@ package connector
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	// Added time for createWelcomeRoomAndSendIntro call
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
+	"github.com/kabili207/meshtastic-go/core"
 	"github.com/rs/zerolog" // Added ptr for createWelcomeRoomAndSendIntro call
 
 	// Added mautrix for createWelcomeRoomAndSendIntro call
@@ -77,8 +77,8 @@ func (sl *MeshtasticLogin) Start(ctx context.Context) (*bridgev2.LoginStep, erro
 					ID:   LoginFieldLongName,
 					Name: "Long name",
 					Validate: func(s string) (string, error) {
-						if len([]byte(s)) > 39 {
-							return s, errors.New("must be less than 40 bytes long")
+						if len([]byte(s)) > core.MaxLongName {
+							return s, fmt.Errorf("must be at most %d bytes long", core.MaxLongName)
 						}
 						return s, nil
 					},
@@ -88,8 +88,8 @@ func (sl *MeshtasticLogin) Start(ctx context.Context) (*bridgev2.LoginStep, erro
 					ID:   LoginFieldShortName,
 					Name: "Short name",
 					Validate: func(s string) (string, error) {
-						if len([]byte(s)) > 4 {
-							return s, errors.New("must be less than 5 bytes long")
+						if len([]byte(s)) > core.MaxShortName {
+							return s, fmt.Errorf("must be at most %d bytes long", core.MaxShortName)
 						}
 						return s, nil
 					},

@@ -168,7 +168,7 @@ func (c *MeshtasticClient) postMessageSave(mxid id.UserID, roomId id.RoomID) fun
 			nodeID := meshid.MXIDToNodeID(mxid)
 			longName, shortName := nodeID.GetDefaultNodeNames()
 			if strings.TrimSpace(u.Displayname) != "" {
-				longName = TruncateString(strings.TrimSpace(u.Displayname), 39)
+				longName = TruncateString(strings.TrimSpace(u.Displayname), core.MaxLongName)
 			}
 			if err = c.main.UpdateGhostMeshNames(ctx, m.SenderID, mxid, longName, shortName); err != nil {
 				log.Err(err).Msg("Unable to set fallback ghost names")
@@ -178,10 +178,10 @@ func (c *MeshtasticClient) postMessageSave(mxid id.UserID, roomId id.RoomID) fun
 }
 
 func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID networkid.UserID, mxid id.UserID, longName, shortName string) error {
-	if len([]byte(longName)) > 39 {
-		return errors.New("long name must be less than 40 bytes")
-	} else if len([]byte(shortName)) > 4 {
-		return errors.New("short name must be less than 5 bytes")
+	if len([]byte(longName)) > core.MaxLongName {
+		return fmt.Errorf("long name must be at most %d bytes", core.MaxLongName)
+	} else if len([]byte(shortName)) > core.MaxShortName {
+		return fmt.Errorf("short name must be at most %d bytes", core.MaxShortName)
 	}
 
 	ghost, err := c.bridge.GetGhostByID(ctx, userID)

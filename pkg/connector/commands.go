@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
+	"github.com/kabili207/meshtastic-go/core"
 	"github.com/kabili207/meshtastic-go/device/node"
 	"maunium.net/go/mautrix/bridgev2/commands"
 	"maunium.net/go/mautrix/bridgev2/matrix"
@@ -113,10 +114,10 @@ func fnUpdateNames(ce *commands.Event) {
 	userMXID := ce.User.MXID
 	nodeID := meshid.MXIDToNodeID(userMXID)
 
-	if len([]byte(longName)) > 39 {
-		ce.Reply("Long name must be less than 40 bytes")
-	} else if len([]byte(shortName)) > 4 {
-		ce.Reply("Short name must be less than 5 bytes")
+	if len([]byte(longName)) > core.MaxLongName {
+		ce.Reply("Long name must be at most %d bytes", core.MaxLongName)
+	} else if len([]byte(shortName)) > core.MaxShortName {
+		ce.Reply("Short name must be at most %d bytes", core.MaxShortName)
 	} else if conn, ok := ce.Bridge.Network.(*MeshtasticConnector); !ok {
 		ce.Log.Error().Msg("Unable to cast MeshtasticConnector")
 		ce.Reply("Failed to get Meshtastic connector (how?!)")
