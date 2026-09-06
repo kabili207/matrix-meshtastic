@@ -119,7 +119,12 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 		if geouri.Altitude != nil {
 			alt = ptr.Ptr(int32(*geouri.Altitude))
 		}
-		precision := lora.MetersToPrecisionBits(ptr.Val(geouri.Uncertainty))
+		// Zero tells receivers the precision is unknown rather than claiming a
+		// ~22 m radius the coordinates were never truncated to.
+		var precision uint32
+		if geouri.Uncertainty != nil {
+			precision = lora.MetersToPrecisionBits(*geouri.Uncertainty)
+		}
 		packetId, err = c.main.meshBridge.SendPositionAs(ctx, fromNode.Core(), targetNode.Core(), latI, lonI, alt, precision, ts, c.sendOpts(channel, usePKI)...)
 
 	default:

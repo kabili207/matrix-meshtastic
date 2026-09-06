@@ -22,8 +22,8 @@ github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aN
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/iancoleman/strcase v0.3.0 h1:nTXanmYxhfFAMjZL34Ov6gkzEsSJZ5DbhxWjvSASxEI=
 github.com/iancoleman/strcase v0.3.0/go.mod h1:iwCmte+B7n89clKwxIoIXy/HfoL7AsD47ZCWhYzw7ho=
-github.com/kabili207/meshtastic-go v0.0.0-20260906055627-50d457098aad h1:GskbFmNVkSEpC8mQFX482vU7yf3YLkEHbr5ebEZHbz4=
-github.com/kabili207/meshtastic-go v0.0.0-20260906055627-50d457098aad/go.mod h1:4Cjotw/AkMYnpKa2+GSyly5SSenIN9UWzIqgc1nzGHk=
+github.com/kabili207/meshtastic-go v0.0.0-20260906065358-8de2e53df29f h1:drPLhh27wTxQrriccPGgZZTxQE+WDckgCrc+dV0vG+M=
+github.com/kabili207/meshtastic-go v0.0.0-20260906065358-8de2e53df29f/go.mod h1:4Cjotw/AkMYnpKa2+GSyly5SSenIN9UWzIqgc1nzGHk=
 github.com/kr/pretty v0.2.1/go.mod h1:ipq/a2n7PKx3OHsz4KJII5eveXtPO4qwEXGdVfWzfnI=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
 github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=

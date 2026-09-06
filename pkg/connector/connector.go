@@ -159,7 +159,10 @@ func (c *MeshtasticConnector) Start(ctx context.Context) error {
 
 	c.meshDB.Upgrade(ctx)
 
-	slogger := slog.New(slogzerolog.Option{Level: slog.LevelInfo, Logger: ptr.Ptr(c.log.With().Logger())}.NewZerologHandler())
+	// Let zerolog's level govern library output. MQTT stays at Info because paho
+	// is very noisy at debug.
+	meshLogger := slog.New(slogzerolog.Option{Level: slog.LevelDebug, Logger: ptr.Ptr(c.log.With().Logger())}.NewZerologHandler())
+	mqttLogger := slog.New(slogzerolog.Option{Level: slog.LevelInfo, Logger: ptr.Ptr(c.log.With().Logger())}.NewZerologHandler())
 
 	// Build the primary channel and the channel set used by the bridge.
 	primary, err := core.NewChannel(c.Config.PrimaryChannel.Name, c.Config.PrimaryChannel.Key)
@@ -177,7 +180,7 @@ func (c *MeshtasticConnector) Start(ctx context.Context) error {
 	var transports []raw.TransportOption
 	if c.Config.UDP {
 		transports = append(transports, raw.TransportOption{
-			Transport: udp.New(udp.Config{Logger: slogger}),
+			Transport: udp.New(udp.Config{Logger: meshLogger}),
 		})
 	}
 	if c.Config.Mqtt.Enabled {
@@ -188,13 +191,13 @@ func (c *MeshtasticConnector) Start(ctx context.Context) error {
 				Password: c.Config.Mqtt.Password,
 				Root:     c.Config.Mqtt.RootTopic,
 				NodeID:   c.GetBaseNodeID().Core(),
-				Logger:   slogger,
+				Logger:   mqttLogger,
 			}),
 			SendDelay: 700 * time.Millisecond,
 			RecvDelay: 500 * time.Millisecond,
 		})
 	}
-	multi := raw.NewMultiTransport(raw.MultiConfig{Logger: slogger}, transports...)
+	multi := raw.NewMultiTransport(raw.MultiConfig{Logger: meshLogger}, transports...)
 
 	bridgeNode, err := node.NewBridge(node.BridgeConfig{
 		Transport:       multi,
@@ -238,7 +241,7 @@ func (c *MeshtasticConnector) Start(ctx context.Context) error {
 		NeighborBroadcastInterval: uint32(rateNeighborInfo.Seconds()),
 		HostMetricsProvider:       c.buildHostMetrics,
 		OnStateChange:             c.onMeshStateChange,
-		Logger:                    slogger,
+		Logger:                    meshLogger,
 	})
 	if err != nil {
 		c.log.Err(err).Msg("Failed to create mesh bridge")
@@ -258,13 +261,10 @@ func (c *MeshtasticConnector) Start(ctx context.Context) error {
 	return nil
 }
 
-// nodeInfoForNode supplies NodeInfo details for a managed node to the bridge.
+// nodeInfoForNode supplies NodeInfo details for a managed ghost to the bridge.
+// The bridge's own identity comes from its config and PublicKeyForNode instead.
 func (c *MeshtasticConnector) nodeInfoForNode(nodeID core.NodeID) (longName, shortName string, pubKey []byte, ok bool) {
 	id := meshid.FromCore(nodeID)
-	if id == c.GetBaseNodeID() {
-		pub, _ := c.getGhostPublicKey(context.Background(), id)
-		return c.Config.LongName, c.Config.ShortName, pub, true
-	}
 	if !c.IsManagedNode(id) {
 		return "", "", nil, false
 	}

@@ -366,9 +366,7 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *meshevent.NodeInfoUpdated)
 		return
 	}
 
-	if !evt.To.IsBroadcast() && evt.WantResponse {
-		c.sendNodeInfo(to, from, false)
-	}
+	// NodeInfo requests are answered by the bridge node itself, throttled per identity.
 
 	mn, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, from)
 	if mn == nil || err != nil {
