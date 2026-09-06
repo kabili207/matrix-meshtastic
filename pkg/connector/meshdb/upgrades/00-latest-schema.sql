@@ -1,4 +1,4 @@
--- v0 -> v2: Latest revision
+-- v0 -> v3: Latest revision
 
 CREATE TABLE mesh_node_info (
     -- 0 = unset, 1 = non-lora broadcast, 4294967295 = broadcast
@@ -17,6 +17,9 @@ CREATE TABLE mesh_node_info (
     public_key       BYTEA,
     private_key      BYTEA,
     last_seen        BIGINT,
+    -- Name of the PSK channel this node's NodeInfo was last heard on, so
+    -- unicasts to it can follow that channel across restarts.
+    channel          VARCHAR(11) NOT NULL DEFAULT '',
 
     PRIMARY KEY (id),
     CONSTRAINT mesh_node_info_user_id UNIQUE (user_id)

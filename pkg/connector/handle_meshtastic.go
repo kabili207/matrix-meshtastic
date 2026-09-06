@@ -383,6 +383,10 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *meshevent.NodeInfoUpdated)
 	}
 	mn.Role = user.Role.String()
 	mn.IsDirect = evt.IsNeighbor
+	// The library reports "PKI" for PKI-decrypted packets, which is not a channel.
+	if evt.ChannelName != "" && evt.ChannelName != "PKI" {
+		mn.Channel = evt.ChannelName
+	}
 	mn.IsLicensed = user.IsLicensed
 	mn.IsUnmessagable = core.IsUnmessageable(user)
 	mn.LastSeen = ptr.Ptr(evt.Timestamp)

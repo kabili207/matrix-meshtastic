@@ -60,7 +60,8 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	}
 
 	fromNode := meshid.MXIDToNodeID(msg.Event.Sender)
-	channel := c.main.PrimaryChannel()
+	// Left nil for DMs so the bridge picks the channel the peer was last heard on.
+	var channel *core.Channel
 	messIDSender := ""
 	targetNode := meshid.BROADCAST_ID
 	usePKI := false
@@ -343,7 +344,7 @@ func (c *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridge
 		return nil, err
 	}
 
-	channel := c.main.PrimaryChannel()
+	var channel *core.Channel
 	targetNode := meshid.BROADCAST_ID
 	usePKI := false
 

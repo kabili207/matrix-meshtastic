@@ -314,6 +314,26 @@ func (c *MeshtasticConnector) LoadUserLogin(ctx context.Context, login *bridgev2
 	return nil
 }
 
+// seedNodeChannels restores each node's last-heard channel into the bridge's
+// in-memory node DB so DMs follow it from the first send after a restart. Runs
+// after portal channels are registered, since unregistered names are rejected.
+func (c *MeshtasticConnector) seedNodeChannels(ctx context.Context) {
+	nodes, err := c.meshDB.MeshNodeInfo.GetNodesWithChannel(ctx)
+	if err != nil {
+		c.log.Err(err).Msg("Failed to load node channels")
+		return
+	}
+	seeded := 0
+	for _, n := range nodes {
+		if c.meshBridge.SetNodeChannel(n.NodeID.Core(), n.Channel) {
+			seeded++
+		} else {
+			c.log.Debug().Stringer("node_id", n.NodeID).Str("channel", n.Channel).Msg("Node channel not registered, skipping")
+		}
+	}
+	c.log.Info().Int("seeded", seeded).Int("known", len(nodes)).Msg("Restored node channels")
+}
+
 func (c *MeshtasticConnector) onMeshDisconnected() {
 	c.log.Error().Msg("Connection to Meshtastic lost")
 	if c.bgTaskCanceller != nil {
@@ -345,6 +365,7 @@ func (c *MeshtasticConnector) onMeshConnected(isReconnect bool) {
 				}
 			}
 		}
+		c.seedNodeChannels(ctx)
 	}
 
 	// Cancel any previously running background tasks before restarting them.

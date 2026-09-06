@@ -13,12 +13,13 @@ import (
 )
 
 const (
-	getMeshNodeInfoSelect             = "SELECT id, user_id, long_name, short_name, node_role, is_licensed, is_unmessageable, is_managed, is_direct, public_key, private_key, last_seen FROM mesh_node_info "
+	getMeshNodeInfoSelect             = "SELECT id, user_id, long_name, short_name, node_role, is_licensed, is_unmessageable, is_managed, is_direct, public_key, private_key, last_seen, channel FROM mesh_node_info "
 	getMeshNodeInfoByNodeIDQuery      = getMeshNodeInfoSelect + "WHERE id=$1"
 	getMeshNodeInfoByUserIDQuery      = getMeshNodeInfoSelect + "WHERE user_id=$1"
 	getMeshNodeInfoByShortUserIDQuery = getMeshNodeInfoSelect + "WHERE user_id LIKE $1"
 	getMeshNodeInfoIsManagedQuery     = getMeshNodeInfoSelect + "WHERE is_managed=true"
 	getMeshNodeInfoNeighborsQuery     = getMeshNodeInfoSelect + "WHERE is_direct=true AND last_seen IS NOT NULL"
+	getMeshNodeInfoWithChannelQuery   = getMeshNodeInfoSelect + "WHERE channel<>''"
 
 	setMeshNodeInfoNamesQuery = "UPDATE mesh_node_info SET long_name=$1, short_name=$2 WHERE id = $3"
 
@@ -31,8 +32,8 @@ const (
 	`
 
 	setMeshNodeInfoQuery = `
-		INSERT INTO mesh_node_info (id, user_id, long_name, short_name, node_role, is_licensed, is_unmessageable, is_managed, is_direct, public_key, private_key, last_seen)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO mesh_node_info (id, user_id, long_name, short_name, node_role, is_licensed, is_unmessageable, is_managed, is_direct, public_key, private_key, last_seen, channel)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (id) DO UPDATE SET
 			user_id=excluded.user_id,
 			long_name=excluded.long_name,
@@ -44,7 +45,8 @@ const (
 			is_direct=excluded.is_direct,
 			public_key=excluded.public_key,
 			private_key=excluded.private_key,
-			last_seen=excluded.last_seen
+			last_seen=excluded.last_seen,
+			channel=excluded.channel
 	`
 )
 
@@ -67,6 +69,9 @@ type MeshNodeInfo struct {
 	PublicKey      []byte
 	PrivateKey     []byte
 	LastSeen       *time.Time
+	// Channel is the PSK channel name this node's NodeInfo was last heard on.
+	// Empty when unknown or only ever heard over PKI.
+	Channel string
 }
 
 var _ dbutil.DataStruct[*MeshNodeInfo] = (*MeshNodeInfo)(nil)
@@ -100,12 +105,17 @@ func (q *MeshNodeInfoQuery) GetManagedNodes(ctx context.Context) ([]*MeshNodeInf
 	return q.QueryMany(ctx, getMeshNodeInfoIsManagedQuery)
 }
 
+// GetNodesWithChannel returns every node with a known last-heard channel.
+func (q *MeshNodeInfoQuery) GetNodesWithChannel(ctx context.Context) ([]*MeshNodeInfo, error) {
+	return q.QueryMany(ctx, getMeshNodeInfoWithChannelQuery)
+}
+
 func (m *MeshNodeInfo) sqlVariables() []any {
 	var ts *int64
 	if m.LastSeen != nil {
 		ts = ptr.Ptr(m.LastSeen.UTC().Unix())
 	}
-	return []any{m.NodeID, m.UserID, m.LongName, m.ShortName, m.Role, m.IsLicensed, m.IsUnmessagable, m.IsManaged, m.IsDirect, m.PublicKey, m.PrivateKey, ts}
+	return []any{m.NodeID, m.UserID, m.LongName, m.ShortName, m.Role, m.IsLicensed, m.IsUnmessagable, m.IsManaged, m.IsDirect, m.PublicKey, m.PrivateKey, ts, m.Channel}
 }
 
 func (m *MeshNodeInfo) SetAll(ctx context.Context) error {
@@ -122,7 +132,7 @@ func (q *MeshNodeInfoQuery) SetLastSeen(ctx context.Context, nodeID meshid.NodeI
 
 func (f *MeshNodeInfo) Scan(row dbutil.Scannable) (*MeshNodeInfo, error) {
 	var ts *int64
-	err := row.Scan(&f.NodeID, &f.UserID, &f.LongName, &f.ShortName, &f.Role, &f.IsLicensed, &f.IsUnmessagable, &f.IsManaged, &f.IsDirect, &f.PublicKey, &f.PrivateKey, &ts)
+	err := row.Scan(&f.NodeID, &f.UserID, &f.LongName, &f.ShortName, &f.Role, &f.IsLicensed, &f.IsUnmessagable, &f.IsManaged, &f.IsDirect, &f.PublicKey, &f.PrivateKey, &ts, &f.Channel)
 	if err == nil && ts != nil {
 		f.LastSeen = ptr.Ptr(time.Unix(*ts, 0))
 	}
