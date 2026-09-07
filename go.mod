@@ -3,7 +3,7 @@ module github.com/kabili207/matrix-meshtastic
 go 1.25.0
 
 require (
-	github.com/kabili207/meshtastic-go v0.0.0-20260906173644-d59b1ea53670
+	github.com/kabili207/meshtastic-go v0.0.0-20260907004220-c22c3bf2e445
 	github.com/rs/zerolog v1.35.1
 	go.mau.fi/util v0.9.9
 )

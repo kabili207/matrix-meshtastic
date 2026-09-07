@@ -339,13 +339,53 @@ func (c *MeshtasticConnector) seedNodeChannels(ctx context.Context) {
 	}
 	seeded := 0
 	for _, n := range nodes {
-		if c.meshBridge.SetNodeChannel(n.NodeID.Core(), n.Channel) {
+		ch := c.storedChannel(ctx, n)
+		if ch != nil && c.meshBridge.SetNodeChannel(n.NodeID.Core(), ch) {
 			seeded++
 		} else {
 			c.log.Debug().Stringer("node_id", n.NodeID).Str("channel", n.Channel).Msg("Node channel not registered, skipping")
 		}
 	}
 	c.log.Info().Int("seeded", seeded).Int("known", len(nodes)).Msg("Restored node channels")
+}
+
+// storedChannel rebuilds the channel a node was last heard on. Rows recorded
+// before the key was stored carry only a name; those resolve against the
+// channels the bridge actually has, and are skipped when the name is ambiguous.
+// The next NodeInfo from the node records the key.
+func (c *MeshtasticConnector) storedChannel(ctx context.Context, n *meshdb.MeshNodeInfo) *core.Channel {
+	if n.ChannelKey != "" {
+		ch, err := core.NewChannel(n.Channel, n.ChannelKey)
+		if err != nil {
+			return nil
+		}
+		return ch
+	}
+	var found *core.Channel
+	consider := func(ch *core.Channel) bool {
+		if ch == nil || ch.GetName() != n.Channel {
+			return true
+		}
+		if found != nil && !core.SameChannel(found, ch) {
+			found = nil
+			return false
+		}
+		found = ch
+		return true
+	}
+	if !consider(c.primaryChannel) {
+		return nil
+	}
+	portals, err := c.bridge.GetAllPortalsWithMXID(ctx)
+	if err != nil {
+		return nil
+	}
+	for _, p := range portals {
+		if ch, err := meshid.ChannelDefFromPortalID(p.ID); err == nil && !consider(ch) {
+			return nil
+		}
+	}
+	return found
 }
 
 func (c *MeshtasticConnector) onMeshDisconnected() {

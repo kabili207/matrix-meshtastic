@@ -234,25 +234,27 @@ func fnTraceroute(ce *commands.Event) {
 		return
 	}
 
-	// Get the channel - use the portal's channel if in a portal, otherwise use the primary channel
-	var channelName string
+	// Use the portal's channel if in a portal, otherwise the primary channel. The
+	// exact definition is passed, since a name alone can match more than one channel.
+	var channel *core.Channel
 	portal := ce.Portal
 	if portal != nil {
-		channelID, _, err := meshid.ParsePortalID(portal.ID)
+		ch, err := meshid.ChannelDefFromPortalID(portal.ID)
 		if err != nil {
 			ce.Reply("Failed to get channel info: %v", err)
 			return
 		}
-		channelName = channelID
+		channel = ch
 	} else if pc := conn.PrimaryChannel(); pc != nil {
-		channelName = pc.GetName()
+		channel = pc
 	} else {
 		ce.Reply("No primary channel configured")
 		return
 	}
+	channelName := channel.GetName()
 
 	// Send the traceroute request
-	packetID, err := conn.meshBridge.RequestTracerouteAs(ce.Ctx, fromNode.Core(), targetNode.Core(), node.WithChannel(channelName))
+	packetID, err := conn.meshBridge.RequestTracerouteAs(ce.Ctx, fromNode.Core(), targetNode.Core(), node.WithChannelDef(channel))
 	if err != nil {
 		ce.Log.Err(err).Msg("Failed to send traceroute")
 		ce.Reply("Failed to send traceroute: %v", err)

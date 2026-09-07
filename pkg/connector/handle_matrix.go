@@ -31,7 +31,7 @@ var _ bridgev2.MembershipHandlingNetworkAPI = (*MeshtasticClient)(nil)
 func (c *MeshtasticClient) sendOpts(channel *core.Channel, usePKI bool) []node.SendOption {
 	opts := []node.SendOption{}
 	if channel != nil {
-		opts = append(opts, node.WithChannel(channel.GetName()))
+		opts = append(opts, node.WithChannelDef(channel))
 	}
 	if usePKI {
 		opts = append(opts, node.WithPKI())
