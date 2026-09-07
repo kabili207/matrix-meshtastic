@@ -50,6 +50,10 @@ func (c *MeshtasticConnector) handleGlobalMeshEvent(rawEvt any) {
 		}
 	case *meshevent.TextMessage:
 		c.dispatchTextMessage(evt)
+	case *meshevent.MeshBeaconReceived:
+		for _, login := range c.allLoginClients() {
+			login.handleMeshBeacon(evt)
+		}
 	case *meshevent.PacketReceived:
 		c.handleUnknownPacket(&evt.Event)
 	}
@@ -204,6 +208,67 @@ func (c *MeshtasticClient) handleMeshMessage(evt *meshevent.TextMessage) {
 
 	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)
 	c.main.meshDB.MeshNodeInfo.SetLastSeen(ctx, from, evt.IsNeighbor)
+}
+
+// handleMeshBeacon lands a beacon in the portal of the channel it arrived on, as a
+// notice from the sender. Firmware shows the text without treating it as a chat
+// message and caches any channel offer for the app; the bridge shows the offer
+// with the command that bridges it. Region and preset offers are for radios and
+// are not shown.
+func (c *MeshtasticClient) handleMeshBeacon(evt *meshevent.MeshBeaconReceived) {
+	if evt.Channel == nil {
+		return // plaintext or unregistered channel: no portal to land in
+	}
+	from := meshid.FromCore(evt.From)
+	ctx := context.Background()
+	c.main.getRemoteGhost(ctx, meshid.MakeUserID(from), true)
+	c.main.meshDB.MeshNodeInfo.SetLastSeen(ctx, from, evt.IsNeighbor)
+
+	mess := simplevent.Message[*meshevent.MeshBeaconReceived]{
+		EventMeta: simplevent.EventMeta{
+			Type: bridgev2.RemoteEventMessage,
+			LogContext: func(c zerolog.Context) zerolog.Context {
+				return c.Stringer("sender_id", from).Str("kind", "mesh_beacon")
+			},
+			PortalKey:    c.makePortalKey(evt.ChannelName, evt.ChannelKey),
+			CreatePortal: false,
+			Sender:       c.makeEventSender(from),
+			Timestamp:    evt.Timestamp,
+		},
+		Data:               evt,
+		ID:                 meshid.MakeMessageID(evt.ChannelName, evt.PacketID),
+		ConvertMessageFunc: c.convertBeaconEvent,
+	}
+	c.bridge.QueueRemoteEvent(c.UserLogin, &mess)
+}
+
+func (c *MeshtasticClient) convertBeaconEvent(_ context.Context, _ *bridgev2.Portal, _ bridgev2.MatrixAPI, data *meshevent.MeshBeaconReceived) (*bridgev2.ConvertedMessage, error) {
+	b := data.Beacon
+	var body, formatted []string
+	if b.Message != "" {
+		body = append(body, "📡 "+b.Message)
+		formatted = append(formatted, "📡 "+html.EscapeString(b.Message))
+	}
+	if ch := b.OfferChannel; ch != nil && ch.Name != "" {
+		key := core.NewChannelWithKey(ch.Name, ch.Psk).GetKeyString()
+		body = append(body, fmt.Sprintf("Channel offer: %s\nTo bridge it, send the bot: join-channel %s %s", ch.Name, ch.Name, key))
+		formatted = append(formatted, fmt.Sprintf("Channel offer: <b>%s</b><br>To bridge it, send the bot: <code>join-channel %s %s</code>",
+			html.EscapeString(ch.Name), html.EscapeString(ch.Name), html.EscapeString(key)))
+	}
+	if len(body) == 0 {
+		return nil, fmt.Errorf("beacon offers nothing the bridge can show")
+	}
+	return &bridgev2.ConvertedMessage{
+		Parts: []*bridgev2.ConvertedMessagePart{{
+			Type: event.EventMessage,
+			Content: &event.MessageEventContent{
+				MsgType:       event.MsgNotice,
+				Body:          strings.Join(body, "\n\n"),
+				Format:        event.FormatHTML,
+				FormattedBody: strings.Join(formatted, "<br><br>"),
+			},
+		}},
+	}, nil
 }
 
 func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data *meshevent.TextMessage) (*bridgev2.ConvertedMessage, error) {
