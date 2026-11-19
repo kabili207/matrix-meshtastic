@@ -365,6 +365,9 @@ func (c *MeshtasticClient) convertMessageEvent(ctx context.Context, portal *brid
 		FormattedBody: formatted,
 		Mentions:      mentions,
 	}
+	if data.IsAutomation {
+		content.MsgType = event.MsgNotice
+	}
 	if formatted != "" {
 		content.Format = event.FormatHTML
 	}

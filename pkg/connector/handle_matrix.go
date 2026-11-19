@@ -101,6 +101,9 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	case event.MsgText, event.MsgNotice, event.MsgEmote:
 		content, _ := c.main.MsgConv.ToMeshtastic(ctx, msg.Event, msg.Content)
 		opts := c.sendOpts(channel, usePKI)
+		if msg.Content.MsgType == event.MsgNotice {
+			opts = append(opts, node.WithAutomation())
+		}
 		if msg.ReplyTo != nil {
 			if _, replyID, perr := meshid.ParseMessageID(msg.ReplyTo.ID); perr == nil && replyID != 0 {
 				opts = append(opts, node.WithReplyID(replyID))
