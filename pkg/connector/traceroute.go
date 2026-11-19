@@ -158,7 +158,7 @@ func (c *MeshtasticConnector) formatTracerouteResponse(evt *meshevent.Traceroute
 			snrStr = fmt.Sprintf("%.2f", float32(rd.SnrTowards[i])/4)
 		}
 		nodeName := c.getNodeDisplayName(node)
-		sb.WriteString(fmt.Sprintf("&nbsp;&nbsp;&nbsp↓ %s dB\n&nbsp;&nbsp;%s\n", snrStr, nodeName))
+		sb.WriteString(fmt.Sprintf("&nbsp;&nbsp;&nbsp;↓ %s dB\n&nbsp;&nbsp;%s\n", snrStr, nodeName))
 	}
 
 	// Final hop SNR (received at destination)

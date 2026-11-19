@@ -24,6 +24,8 @@ github.com/iancoleman/strcase v0.3.0 h1:nTXanmYxhfFAMjZL34Ov6gkzEsSJZ5DbhxWjvSAS
 github.com/iancoleman/strcase v0.3.0/go.mod h1:iwCmte+B7n89clKwxIoIXy/HfoL7AsD47ZCWhYzw7ho=
 github.com/kabili207/meshtastic-go v0.0.0-20260907004220-c22c3bf2e445 h1:Hvr3CmluS3NrvyEH7Dn5QV2VoEZl2ao7otrKGUy9lZY=
 github.com/kabili207/meshtastic-go v0.0.0-20260907004220-c22c3bf2e445/go.mod h1:4Cjotw/AkMYnpKa2+GSyly5SSenIN9UWzIqgc1nzGHk=
+github.com/kabili207/meshtastic-go v0.0.0-20261119171808-1d33bb892fc4 h1:EqOPpUm/pArlVWHDov3xP5vsOaJ1fHg5He67wvDvJE4=
+github.com/kabili207/meshtastic-go v0.0.0-20261119171808-1d33bb892fc4/go.mod h1:4Cjotw/AkMYnpKa2+GSyly5SSenIN9UWzIqgc1nzGHk=
 github.com/kr/pretty v0.2.1/go.mod h1:ipq/a2n7PKx3OHsz4KJII5eveXtPO4qwEXGdVfWzfnI=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
 github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=
