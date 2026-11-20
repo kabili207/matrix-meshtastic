@@ -1,12 +1,15 @@
 package connector
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"html"
 	"strings"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/connector/meshdb"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
+	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/event"
 )
@@ -94,4 +97,30 @@ func nodeBio(nodeID meshid.NodeID, mn *meshdb.MeshNodeInfo) (plain, formatted st
 		f = append(f, "<b>"+html.EscapeString(l.label)+":</b> "+html.EscapeString(l.value))
 	}
 	return strings.Join(p, "\n"), strings.Join(f, "<br>")
+}
+
+var errNotManaged = errors.New("node is not managed by the bridge")
+
+// setManagedStatus stores a bridged Matrix user's status, shows it on their
+// node's profile and broadcasts it. Like firmware, an empty status is never
+// sent; it only stops the periodic broadcast.
+func (c *MeshtasticConnector) setManagedStatus(ctx context.Context, nodeID meshid.NodeID, status string) error {
+	mn, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, nodeID)
+	if err != nil {
+		return err
+	} else if mn == nil || !mn.IsManaged {
+		return errNotManaged
+	}
+	if err := c.meshDB.MeshNodeInfo.SetStatus(ctx, nodeID, status); err != nil {
+		return err
+	}
+	mn.Status = status
+	if ghost, err := c.bridge.GetExistingGhostByID(ctx, meshid.MakeUserID(nodeID)); err == nil && ghost != nil {
+		ghost.UpdateInfo(ctx, &bridgev2.UserInfo{ExtraProfile: nodeProfile(nodeID, mn)})
+	}
+	if status == "" {
+		return nil
+	}
+	_, err = c.meshBridge.SendStatusAs(ctx, nodeID.Core(), status)
+	return err
 }

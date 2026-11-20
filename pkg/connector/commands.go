@@ -2,6 +2,7 @@ package connector
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -38,6 +39,18 @@ var cmdUpdateNames = &commands.FullHandler{
 		Section:     HelpSectionNode,
 		Description: "Updates the long and short names shown to Meshtastic users",
 		Args:        "<_short name_> <_long name_>",
+	},
+	RequiresLogin:  false,
+	RequiresPortal: false,
+}
+
+var cmdSetStatus = &commands.FullHandler{
+	Func: fnSetStatus,
+	Name: "set-status",
+	Help: commands.HelpMeta{
+		Section:     HelpSectionNode,
+		Description: "Sets the status message your node broadcasts to the mesh every 12 hours. Leave it empty to stop broadcasting it",
+		Args:        "[_status_]",
 	},
 	RequiresLogin:  false,
 	RequiresPortal: false,
@@ -126,6 +139,31 @@ func fnUpdateNames(ce *commands.Event) {
 		ce.Reply("Unable to set your names on Meshtastic: %v", err)
 	} else {
 		ce.Reply("Successfully updated Meshtastic names")
+	}
+}
+
+func fnSetStatus(ce *commands.Event) {
+	conn, ok := ce.Bridge.Network.(*MeshtasticConnector)
+	if !ok {
+		ce.Log.Error().Msg("Unable to cast MeshtasticConnector")
+		ce.Reply("Failed to get Meshtastic connector (how?!)")
+		return
+	}
+	status := strings.Join(ce.Args, " ")
+	if len(status) > core.MaxStatusMessage {
+		ce.Reply("Status must be at most %d bytes", core.MaxStatusMessage)
+		return
+	}
+	nodeID := conn.NodeIDForMXID(ce.User.MXID)
+	if err := conn.setManagedStatus(ce.Ctx, nodeID, status); errors.Is(err, errNotManaged) {
+		ce.Reply("You don't have a Meshtastic node yet. Set your names with `$cmdprefix update-names` first.")
+	} else if err != nil {
+		ce.Log.Err(err).Msg("Unable to set status")
+		ce.Reply("Unable to set your status: %v", err)
+	} else if status == "" {
+		ce.Reply("Status cleared. Nodes that already heard it keep showing it until they forget your node.")
+	} else {
+		ce.Reply("Status set and broadcast to the mesh")
 	}
 }
 

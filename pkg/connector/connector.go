@@ -77,7 +77,7 @@ func (c *MeshtasticConnector) Init(bridge *bridgev2.Bridge) {
 		c.tracerouteTracker = NewTracerouteTracker()
 	}
 
-	c.bridge.Commands.(*commands.Processor).AddHandlers(cmdJoinChannel, cmdUpdateNames, cmdNodeInfo, cmdTraceroute)
+	c.bridge.Commands.(*commands.Processor).AddHandlers(cmdJoinChannel, cmdUpdateNames, cmdSetStatus, cmdNodeInfo, cmdTraceroute)
 
 	slogger := slog.New(slogzerolog.Option{Level: slog.LevelInfo, Logger: &c.log}.NewZerologHandler())
 	slog.SetDefault(slogger)

@@ -24,6 +24,7 @@ const (
 	rateNodeInfo        time.Duration = (3 * time.Hour) + (13 * time.Second)
 	ratePosition        time.Duration = (3 * time.Hour) + (26 * time.Second)
 	rateNeighborInfo    time.Duration = (12 * time.Hour) + (31 * time.Second)
+	rateStatus          time.Duration = (12 * time.Hour) + (37 * time.Second) // StatusMessageModule
 	rateInactiveCleanup time.Duration = 24 * time.Hour
 )
 
@@ -33,10 +34,12 @@ func init() {
 func (mc *MeshtasticConnector) RunNodeInfoTask(ctx context.Context) error {
 	go func() {
 		mc.sendPeriodicNodeInfo(ctx)
+		mc.sendPeriodicStatus(ctx)
 		tickerTele := time.NewTicker(rateTelemetry)
 		tickerHost := time.NewTicker(rateHostInfo)
 		tickerNodeInfo := time.NewTicker(rateNodeInfo)
 		tickerNeighbors := time.NewTicker(rateNeighborInfo)
+		tickerStatus := time.NewTicker(rateStatus)
 		for {
 			select {
 			case <-ctx.Done():
@@ -50,6 +53,8 @@ func (mc *MeshtasticConnector) RunNodeInfoTask(ctx context.Context) error {
 				mc.sendPeriodicNodeInfo(ctx)
 			case <-tickerNeighbors.C:
 				mc.sendPeriodicNeighborInfo(ctx)
+			case <-tickerStatus.C:
+				mc.sendPeriodicStatus(ctx)
 			}
 		}
 	}()
@@ -123,6 +128,17 @@ func (c *MeshtasticConnector) sendPeriodicNodeInfo(ctx context.Context) {
 		log.Msg("Broadcasting periodic node info")
 		if _, err := c.meshBridge.SendNodeInfoAs(ctx, meta.NodeID.Core(), meshid.BROADCAST_ID.Core()); err != nil {
 			log.Err(err).Msg("Broadcasting node info failed")
+		}
+	})
+}
+
+func (c *MeshtasticConnector) sendPeriodicStatus(ctx context.Context) {
+	c.doForAllManagedGhosts(ctx, func(meta *meshdb.MeshNodeInfo) {
+		if meta.Status == "" {
+			return
+		}
+		if _, err := c.meshBridge.SendStatusAs(ctx, meta.NodeID.Core(), meta.Status); err != nil {
+			c.log.Err(err).Str("node_id", meta.UserID).Msg("Broadcasting status failed")
 		}
 	})
 }
