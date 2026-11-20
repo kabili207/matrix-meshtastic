@@ -12,6 +12,7 @@ import (
 	"github.com/kabili207/matrix-meshtastic/pkg/connector/meshdb"
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
 	"github.com/kabili207/meshtastic-go/core"
+	pb "github.com/kabili207/meshtastic-go/core/proto"
 	meshevent "github.com/kabili207/meshtastic-go/device/event"
 	"github.com/kabili207/meshtastic-go/device/node"
 	"github.com/rs/zerolog"
@@ -56,6 +57,8 @@ func (c *MeshtasticConnector) handleGlobalMeshEvent(rawEvt any) {
 		}
 	case *meshevent.PacketReceived:
 		c.handleUnknownPacket(&evt.Event)
+	case *meshevent.StatusMessageReceived:
+		c.handleMeshStatus(evt)
 	}
 }
 
@@ -86,6 +89,33 @@ func (c *MeshtasticConnector) handleUnknownPacket(evt *meshevent.Event) {
 	from := meshid.FromCore(evt.From)
 	c.getRemoteGhost(context.Background(), meshid.MakeUserID(from), true)
 	c.meshDB.MeshNodeInfo.SetLastSeen(context.Background(), from, evt.IsNeighbor)
+}
+
+// handleMeshStatus stores a node's status message and shows it on the node's
+// Matrix profile.
+func (c *MeshtasticConnector) handleMeshStatus(evt *meshevent.StatusMessageReceived) {
+	c.handleUnknownPacket(&evt.Event)
+	from := meshid.FromCore(evt.From)
+	log := c.log.With().
+		Str("action", "handle_mesh_status").
+		Stringer("node_id", from).
+		Logger()
+	ctx := log.WithContext(context.Background())
+
+	if err := c.meshDB.MeshNodeInfo.SetStatus(ctx, from, evt.Status); err != nil {
+		log.Err(err).Msg("Failed to store status message")
+		return
+	}
+	mn, err := c.meshDB.MeshNodeInfo.GetByNodeID(ctx, from)
+	if err != nil {
+		log.Err(err).Msg("Failed to query node info")
+		return
+	}
+	ghost, err := c.bridge.GetExistingGhostByID(ctx, meshid.MakeUserID(from))
+	if err != nil || ghost == nil {
+		return
+	}
+	ghost.UpdateInfo(ctx, &bridgev2.UserInfo{ExtraProfile: nodeProfile(from, mn)})
 }
 
 func (c *MeshtasticConnector) handleMeshLocation(evt *meshevent.PositionUpdated) {
@@ -461,6 +491,9 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *meshevent.NodeInfoUpdated)
 	}
 	mn.IsLicensed = user.IsLicensed
 	mn.IsUnmessagable = core.IsUnmessageable(user)
+	if user.HwModel != pb.HardwareModel_UNSET {
+		mn.HwModel = user.HwModel.String()
+	}
 	mn.LastSeen = ptr.Ptr(evt.Timestamp)
 	err = mn.SetAll(ctx)
 	if err != nil {
@@ -476,9 +509,10 @@ func (c *MeshtasticConnector) handleMeshNodeInfo(evt *meshevent.NodeInfoUpdated)
 	}
 
 	userInfo := &bridgev2.UserInfo{
-		Name:        &user.LongName,
-		IsBot:       ptr.Ptr(false),
-		Identifiers: []string{},
+		Name:         &user.LongName,
+		IsBot:        ptr.Ptr(false),
+		Identifiers:  []string{},
+		ExtraProfile: nodeProfile(from, mn),
 	}
 	ghost.UpdateInfo(ctx, userInfo)
 	if needUpdate {
@@ -539,6 +573,9 @@ func (c *MeshtasticConnector) handleMapReport(evt *meshevent.MapReportReceived) 
 	}
 	mn.Role = roleStr
 	mn.IsDirect = evt.IsNeighbor
+	if mr.HwModel != pb.HardwareModel_UNSET {
+		mn.HwModel = mr.HwModel.String()
+	}
 
 	mn.LastSeen = ptr.Ptr(evt.Timestamp)
 	err = mn.SetAll(ctx)
@@ -555,9 +592,10 @@ func (c *MeshtasticConnector) handleMapReport(evt *meshevent.MapReportReceived) 
 	}
 
 	userInfo := &bridgev2.UserInfo{
-		Name:        &mr.LongName,
-		IsBot:       ptr.Ptr(false),
-		Identifiers: []string{},
+		Name:         &mr.LongName,
+		IsBot:        ptr.Ptr(false),
+		Identifiers:  []string{},
+		ExtraProfile: nodeProfile(from, mn),
 	}
 	ghost.UpdateInfo(ctx, userInfo)
 	if needUpdate {

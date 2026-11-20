@@ -131,12 +131,14 @@ func (c *MeshtasticClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghos
 		return nil, err
 	} else if nodeInfo != nil && nodeInfo.LongName != "" {
 		return &bridgev2.UserInfo{
-			Name: ptr.Ptr(nodeInfo.LongName),
+			Name:         ptr.Ptr(nodeInfo.LongName),
+			ExtraProfile: nodeProfile(nodeID, nodeInfo),
 		}, nil
 	} else {
 		long, _ := nodeID.GetDefaultNodeNames()
 		return &bridgev2.UserInfo{
-			Name: ptr.Ptr(long),
+			Name:         ptr.Ptr(long),
+			ExtraProfile: nodeProfile(nodeID, nodeInfo),
 		}, nil
 	}
 

@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	getMeshNodeInfoSelect             = "SELECT id, user_id, long_name, short_name, node_role, is_licensed, is_unmessageable, is_managed, is_direct, public_key, private_key, last_seen, channel, channel_key FROM mesh_node_info "
+	getMeshNodeInfoSelect             = "SELECT id, user_id, long_name, short_name, node_role, is_licensed, is_unmessageable, is_managed, is_direct, public_key, private_key, last_seen, channel, channel_key, hw_model, status FROM mesh_node_info "
 	getMeshNodeInfoByNodeIDQuery      = getMeshNodeInfoSelect + "WHERE id=$1"
 	getMeshNodeInfoByUserIDQuery      = getMeshNodeInfoSelect + "WHERE user_id=$1"
 	getMeshNodeInfoByShortUserIDQuery = getMeshNodeInfoSelect + "WHERE user_id LIKE $1"
@@ -21,7 +21,8 @@ const (
 	getMeshNodeInfoNeighborsQuery     = getMeshNodeInfoSelect + "WHERE is_direct=true AND last_seen IS NOT NULL"
 	getMeshNodeInfoWithChannelQuery   = getMeshNodeInfoSelect + "WHERE channel<>''"
 
-	setMeshNodeInfoNamesQuery = "UPDATE mesh_node_info SET long_name=$1, short_name=$2 WHERE id = $3"
+	setMeshNodeInfoNamesQuery  = "UPDATE mesh_node_info SET long_name=$1, short_name=$2 WHERE id = $3"
+	setMeshNodeInfoStatusQuery = "UPDATE mesh_node_info SET status=$1 WHERE id = $2"
 
 	// An update rather than a delete: mesh_waypoints cascades on delete from this table.
 	retireManagedNodeQuery = "UPDATE mesh_node_info SET is_managed=false, public_key=NULL, private_key=NULL WHERE id=$1 AND is_managed=true"
@@ -37,8 +38,8 @@ const (
 	`
 
 	setMeshNodeInfoQuery = `
-		INSERT INTO mesh_node_info (id, user_id, long_name, short_name, node_role, is_licensed, is_unmessageable, is_managed, is_direct, public_key, private_key, last_seen, channel, channel_key)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		INSERT INTO mesh_node_info (id, user_id, long_name, short_name, node_role, is_licensed, is_unmessageable, is_managed, is_direct, public_key, private_key, last_seen, channel, channel_key, hw_model, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		ON CONFLICT (id) DO UPDATE SET
 			user_id=excluded.user_id,
 			long_name=excluded.long_name,
@@ -52,7 +53,9 @@ const (
 			private_key=excluded.private_key,
 			last_seen=excluded.last_seen,
 			channel=excluded.channel,
-			channel_key=excluded.channel_key
+			channel_key=excluded.channel_key,
+			hw_model=excluded.hw_model,
+			status=excluded.status
 	`
 )
 
@@ -80,6 +83,10 @@ type MeshNodeInfo struct {
 	// empty on rows recorded before the key was stored.
 	Channel    string
 	ChannelKey string
+	// HwModel is the HardwareModel enum name, empty until a NodeInfo or map report
+	// names it. Status is the node's latest status message.
+	HwModel string
+	Status  string
 }
 
 var _ dbutil.DataStruct[*MeshNodeInfo] = (*MeshNodeInfo)(nil)
@@ -123,7 +130,7 @@ func (m *MeshNodeInfo) sqlVariables() []any {
 	if m.LastSeen != nil {
 		ts = ptr.Ptr(m.LastSeen.UTC().Unix())
 	}
-	return []any{m.NodeID, m.UserID, m.LongName, m.ShortName, m.Role, m.IsLicensed, m.IsUnmessagable, m.IsManaged, m.IsDirect, m.PublicKey, m.PrivateKey, ts, m.Channel, m.ChannelKey}
+	return []any{m.NodeID, m.UserID, m.LongName, m.ShortName, m.Role, m.IsLicensed, m.IsUnmessagable, m.IsManaged, m.IsDirect, m.PublicKey, m.PrivateKey, ts, m.Channel, m.ChannelKey, m.HwModel, m.Status}
 }
 
 func (m *MeshNodeInfo) SetAll(ctx context.Context) error {
@@ -146,13 +153,17 @@ func (q *MeshNodeInfoQuery) SetNames(ctx context.Context, nodeID meshid.NodeID, 
 	return q.Exec(ctx, setMeshNodeInfoNamesQuery, longName, shortName, nodeID)
 }
 
+func (q *MeshNodeInfoQuery) SetStatus(ctx context.Context, nodeID meshid.NodeID, status string) error {
+	return q.Exec(ctx, setMeshNodeInfoStatusQuery, status, nodeID)
+}
+
 func (q *MeshNodeInfoQuery) SetLastSeen(ctx context.Context, nodeID meshid.NodeID, isDirect bool) error {
 	return q.Exec(ctx, setMeshNodeInfoLastSeen, nodeID, nodeID.String(), isDirect, time.Now().Unix())
 }
 
 func (f *MeshNodeInfo) Scan(row dbutil.Scannable) (*MeshNodeInfo, error) {
 	var ts *int64
-	err := row.Scan(&f.NodeID, &f.UserID, &f.LongName, &f.ShortName, &f.Role, &f.IsLicensed, &f.IsUnmessagable, &f.IsManaged, &f.IsDirect, &f.PublicKey, &f.PrivateKey, &ts, &f.Channel, &f.ChannelKey)
+	err := row.Scan(&f.NodeID, &f.UserID, &f.LongName, &f.ShortName, &f.Role, &f.IsLicensed, &f.IsUnmessagable, &f.IsManaged, &f.IsDirect, &f.PublicKey, &f.PrivateKey, &ts, &f.Channel, &f.ChannelKey, &f.HwModel, &f.Status)
 	if err == nil && ts != nil {
 		f.LastSeen = ptr.Ptr(time.Unix(*ts, 0))
 	}

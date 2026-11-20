@@ -244,6 +244,7 @@ func (c *MeshtasticConnector) UpdateGhostMeshNames(ctx context.Context, userID n
 	if err := nodeInfo.SetAll(ctx); err != nil {
 		return err
 	}
+	ghost.UpdateInfo(ctx, &bridgev2.UserInfo{ExtraProfile: nodeProfile(nodeID, nodeInfo)})
 
 	// Nil during the startup identity migration, which runs before the mesh starts.
 	if c.meshBridge == nil {

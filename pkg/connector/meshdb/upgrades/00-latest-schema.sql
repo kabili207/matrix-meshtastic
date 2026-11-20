@@ -1,4 +1,4 @@
--- v0 -> v5: Latest revision
+-- v0 -> v6: Latest revision
 
 CREATE TABLE mesh_node_info (
     -- 0 = unset, 1 = non-lora broadcast, 4294967295 = broadcast
@@ -23,6 +23,10 @@ CREATE TABLE mesh_node_info (
     -- Base64 PSK of that channel. A channel is identified by name and key
     -- together; the name alone can match more than one.
     channel_key      VARCHAR(64) NOT NULL DEFAULT '',
+    -- HardwareModel enum name from NodeInfo or a map report.
+    hw_model         VARCHAR(40) NOT NULL DEFAULT '',
+    -- Latest NODE_STATUS_APP message.
+    status           TEXT NOT NULL DEFAULT '',
 
     PRIMARY KEY (id),
     CONSTRAINT mesh_node_info_user_id UNIQUE (user_id)

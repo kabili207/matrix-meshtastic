@@ -77,6 +77,16 @@ bridge:
         "@admin:example.com": admin
 ```
 
+To show each node's status message, color, hardware model, role and license on its Matrix profile, enable
+extra profile info. It needs a homeserver with custom profile fields (Matrix v1.16, MSC4133), and Sable and
+Commet are the clients that display them. It sends one request per changed field, so expect more traffic
+when nodes are first heard.
+
+```yaml
+matrix:
+    ghost_extra_profile_info: true
+```
+
 ### Backing up the identity key
 
 Every node ID the bridge uses, its own included, is derived from one 32-byte root key stored in the
