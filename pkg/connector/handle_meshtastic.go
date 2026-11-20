@@ -157,15 +157,9 @@ func (c *MeshtasticClient) handleMeshMessage(evt *meshevent.TextMessage) {
 		portalKey = c.makeDMPortalKey(from, to)
 		messIDSender = from.String()
 		roomType = database.RoomTypeDM
-		if evt.WantAck {
-			c.main.meshBridge.SendAckAs(ctx, to.Core(), from.Core(), evt.PacketID)
-		}
 	} else {
 		portalKey = c.makePortalKey(evt.ChannelName, evt.ChannelKey)
 		messIDSender = evt.ChannelName
-		if evt.WantAck {
-			c.main.meshBridge.SendAckAs(ctx, c.main.GetBaseNodeID().Core(), from.Core(), evt.PacketID)
-		}
 	}
 
 	if !evt.IsDM {
@@ -629,15 +623,9 @@ func (c *MeshtasticClient) handleMeshReaction(evt *meshevent.TextMessage) {
 	if evt.IsDM {
 		portalKey = c.makeDMPortalKey(from, to)
 		messIDSender = from.String()
-		if evt.WantAck {
-			c.main.meshBridge.SendAckAs(context.Background(), to.Core(), from.Core(), evt.PacketID)
-		}
 	} else {
 		portalKey = c.makePortalKey(evt.ChannelName, evt.ChannelKey)
 		messIDSender = evt.ChannelName
-		if evt.WantAck {
-			c.main.meshBridge.SendAckAs(context.Background(), c.main.GetBaseNodeID().Core(), from.Core(), evt.PacketID)
-		}
 	}
 
 	if !evt.IsDM {

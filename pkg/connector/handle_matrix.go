@@ -26,17 +26,25 @@ var _ bridgev2.TypingHandlingNetworkAPI = (*MeshtasticClient)(nil)
 var _ bridgev2.ReadReceiptHandlingNetworkAPI = (*MeshtasticClient)(nil)
 var _ bridgev2.MembershipHandlingNetworkAPI = (*MeshtasticClient)(nil)
 
-// sendOpts builds the common send options for an outgoing message: the target
-// channel and whether to use PKI encryption.
-func (c *MeshtasticClient) sendOpts(channel *core.Channel, usePKI bool) []node.SendOption {
+// sendOpts builds the common send options for an outgoing message. Encryption
+// is left to the library, which uses PKI for unicasts wherever firmware does.
+func (c *MeshtasticClient) sendOpts(channel *core.Channel) []node.SendOption {
 	opts := []node.SendOption{}
 	if channel != nil {
 		opts = append(opts, node.WithChannelDef(channel))
 	}
-	if usePKI {
-		opts = append(opts, node.WithPKI())
-	}
 	return opts
+}
+
+// explainMissingKey turns a DM refused for lack of the recipient's public key
+// into something a Matrix user can act on, and asks the node for its NodeInfo,
+// which carries the key. Other errors pass through unchanged.
+func (c *MeshtasticClient) explainMissingKey(err error, target meshid.NodeID) error {
+	if !errors.Is(err, node.ErrNoPublicKey) {
+		return err
+	}
+	go c.main.requestGhostNodeInfo(meshid.MakeUserID(target))
+	return fmt.Errorf("the bridge doesn't have this node's public key yet, so the message can't be encrypted; it has asked the node for it, so try again once the node replies: %w", err)
 }
 
 func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (message *bridgev2.MatrixMessageResponse, err error) {
@@ -63,7 +71,6 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	var channel *core.Channel
 	messIDSender := ""
 	targetNode := meshid.BROADCAST_ID
-	usePKI := false
 
 	switch msg.Portal.Portal.RoomType {
 	case database.RoomTypeDefault:
@@ -80,9 +87,6 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 				}
 			}
 			messIDSender = targetNode.String()
-			if pubKey, err := c.main.getGhostPublicKey(ctx, targetNode); err == nil && len(pubKey) > 0 {
-				usePKI = true
-			}
 		}
 	default:
 		err = fmt.Errorf("unsupported room type: %s", msg.Portal.Portal.RoomType)
@@ -100,7 +104,7 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	switch msg.Content.MsgType {
 	case event.MsgText, event.MsgNotice, event.MsgEmote:
 		content, _ := c.main.MsgConv.ToMeshtastic(ctx, msg.Event, msg.Content)
-		opts := c.sendOpts(channel, usePKI)
+		opts := c.sendOpts(channel)
 		if msg.Content.MsgType == event.MsgNotice {
 			opts = append(opts, node.WithAutomation())
 		}
@@ -128,13 +132,14 @@ func (c *MeshtasticClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 		if geouri.Uncertainty != nil {
 			precision = lora.MetersToPrecisionBits(*geouri.Uncertainty)
 		}
-		packetId, err = c.main.meshBridge.SendPositionAs(ctx, fromNode.Core(), targetNode.Core(), latI, lonI, alt, precision, ts, c.sendOpts(channel, usePKI)...)
+		packetId, err = c.main.meshBridge.SendPositionAs(ctx, fromNode.Core(), targetNode.Core(), latI, lonI, alt, precision, ts, c.sendOpts(channel)...)
 
 	default:
 		return nil, bridgev2.ErrUnsupportedMessageType
 	}
 
 	if err != nil {
+		err = c.explainMissingKey(err, targetNode)
 		return nil, bridgev2.WrapErrorInStatus(err).WithErrorAsMessage().WithIsCertain(true).WithSendNotice(true)
 	}
 
@@ -351,16 +356,12 @@ func (c *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridge
 
 	var channel *core.Channel
 	targetNode := meshid.BROADCAST_ID
-	usePKI := false
 
 	switch msg.Portal.Portal.RoomType {
 	case database.RoomTypeDefault:
 		channel, err = meshid.ChannelDefFromPortalID(msg.Portal.ID)
 	case database.RoomTypeDM:
 		targetNode, _, err = meshid.ParseDMPortalID(msg.Portal.ID)
-		if pubKey, err := c.main.getGhostPublicKey(ctx, targetNode); err == nil && len(pubKey) > 0 {
-			usePKI = true
-		}
 	default:
 		err = fmt.Errorf("unsupported room type: %s", msg.Portal.Portal.RoomType)
 	}
@@ -373,8 +374,8 @@ func (c *MeshtasticClient) HandleMatrixReaction(ctx context.Context, msg *bridge
 	if err != nil {
 		return nil, err
 	}
-	_, err = c.main.meshBridge.SendReactionAs(ctx, fromNode.Core(), targetNode.Core(), packetID, pre.Emoji, c.sendOpts(channel, usePKI)...)
-	return &database.Reaction{}, err
+	_, err = c.main.meshBridge.SendReactionAs(ctx, fromNode.Core(), targetNode.Core(), packetID, pre.Emoji, c.sendOpts(channel)...)
+	return &database.Reaction{}, c.explainMissingKey(err, targetNode)
 }
 
 func (c *MeshtasticClient) UpdateLastSeenDate(ctx context.Context, sender id.UserID) {

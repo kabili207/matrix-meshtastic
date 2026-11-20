@@ -3,8 +3,10 @@ package connector
 import (
 	_ "embed"
 	"fmt"
+	"strings"
 
 	"github.com/kabili207/matrix-meshtastic/pkg/meshid"
+	pb "github.com/kabili207/meshtastic-go/core/proto"
 	"go.mau.fi/util/configupgrade"
 )
 
@@ -19,6 +21,8 @@ type Config struct {
 	UDP                 bool          `yaml:"udp"`
 	Mqtt                MqttConfig    `yaml:"mqtt"`
 	InactivityThreshold int           `yaml:"inactivity_threshold_days"`
+	Licensed            bool          `yaml:"licensed"`
+	SignaturePolicy     string        `yaml:"signature_policy"`
 }
 
 type MqttConfig struct {
@@ -47,6 +51,21 @@ func upgradeConfig(helper configupgrade.Helper) {
 	helper.Copy(configupgrade.Str, "mqtt", "password")
 	helper.Copy(configupgrade.Str, "mqtt", "root_topic")
 	helper.Copy(configupgrade.Int, "inactivity_threshold_days")
+	helper.Copy(configupgrade.Bool, "licensed")
+	helper.Copy(configupgrade.Str, "signature_policy")
+}
+
+// signaturePolicy maps the config's policy name (compatible, balanced or strict)
+// to the protobuf enum. An empty name means compatible, the firmware default.
+func (c Config) signaturePolicy() (pb.Config_SecurityConfig_PacketSignaturePolicy, error) {
+	if c.SignaturePolicy == "" {
+		return pb.Config_SecurityConfig_PACKET_SIGNATURE_POLICY_COMPATIBLE, nil
+	}
+	v, ok := pb.Config_SecurityConfig_PacketSignaturePolicy_value["PACKET_SIGNATURE_POLICY_"+strings.ToUpper(c.SignaturePolicy)]
+	if !ok {
+		return 0, fmt.Errorf("signature_policy must be compatible, balanced or strict, not %q", c.SignaturePolicy)
+	}
+	return pb.Config_SecurityConfig_PacketSignaturePolicy(v), nil
 }
 
 func (mc *MeshtasticConnector) GetConfig() (example string, data any, upgrader configupgrade.Upgrader) {
@@ -68,6 +87,14 @@ func (c *MeshtasticConnector) ValidateConfig() error {
 	}
 	if !c.Config.UDP && !c.Config.Mqtt.Enabled {
 		return fmt.Errorf("at least one connection method must be enabled")
+	}
+	// Firmware renames these after the modem preset, so the library would hear the
+	// channel under a different name than the bridge sends it with.
+	if name := c.Config.PrimaryChannel.Name; name == "" || name == "Default" {
+		return fmt.Errorf("primary_channel.name must be set to the channel's real name (such as LongFast), not %q", name)
+	}
+	if _, err := c.Config.signaturePolicy(); err != nil {
+		return err
 	}
 	return nil
 }

@@ -9,7 +9,8 @@ short_name: "MB"
 
 # Primary channel. This will be used to broadcast and receive node info,
 # location updates, and unencrypted DMs between nodes. Should be left as
-# the default LongFast with the "AQ==" key
+# the default LongFast with the "AQ==" key. The name must be the channel's
+# real name: an empty name or "Default" is rejected.
 primary_channel:
   name: LongFast
   key: "1PG7OiApB1nwvP+rz05pAQ=="
@@ -34,3 +35,17 @@ mqtt:
 # Set to 0 to disable automatic cleanup.
 # Does not affect managed nodes (Matrix users bridged to Meshtastic).
 inactivity_threshold_days: 90
+
+# Mark every bridged identity as a licensed amateur radio operator, like
+# firmware's licensed (ham) mode. DMs are then sent without PKI encryption, as
+# amateur rules require, and are signed instead. Unlicensed nodes ignore NodeInfo
+# from licensed ones (and the reverse), so the bridge's names and keys only reach
+# other licensed nodes. Leave off unless the bridge operator holds a license.
+licensed: false
+
+# How strictly to check XEdDSA signatures on received packets. Outgoing packets
+# are signed under every policy.
+#   compatible: accept unsigned packets (firmware default)
+#   balanced:   also refuse unsigned name or key changes from nodes known to sign
+#   strict:     also drop most unsigned packets
+signature_policy: compatible

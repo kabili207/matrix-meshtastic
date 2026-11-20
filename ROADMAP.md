@@ -27,6 +27,7 @@
     * [x] MQTT
     * [x] Mesh over LAN (UDP, v2.6+)
     * [ ] Phone API (serial/bluetooth/TCP)
+  * [ ] AEAD (AES-CCM) channels, firmware 2.8.1+ (meshtastic-go supports them; portal IDs, `join-channel` and the config only carry name and key)
   * [x] Automatic portal creation
     * [x] When receiving message
   * [x] Private chat creation by inviting Matrix puppet of Meshtastic user to new room

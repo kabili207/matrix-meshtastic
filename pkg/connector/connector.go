@@ -185,6 +185,10 @@ func (c *MeshtasticConnector) Start(ctx context.Context) error {
 		return err
 	}
 	c.primaryChannel = primary
+	signaturePolicy, err := c.Config.signaturePolicy()
+	if err != nil {
+		return err
+	}
 	channelSet := &pb.ChannelSet{
 		Settings: []*pb.ChannelSettings{{Name: primary.GetName(), Psk: primary.GetKeyBytes()}},
 	}
@@ -222,6 +226,8 @@ func (c *MeshtasticConnector) Start(ctx context.Context) error {
 		Channels:        channelSet,
 		DefaultHopLimit: c.Config.HopLimit,
 		OkToMQTT:        true,
+		Licensed:        c.Config.Licensed,
+		SignaturePolicy: signaturePolicy,
 		IsManagedNode: func(nodeID core.NodeID) bool {
 			return c.IsManagedNode(meshid.FromCore(nodeID))
 		},
